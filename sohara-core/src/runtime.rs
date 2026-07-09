@@ -24,6 +24,7 @@ impl Runtime {
     }
 
     /// Get the runtime name
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -35,6 +36,7 @@ impl Runtime {
     }
 
     /// Start the runtime (placeholder for actual implementation)
+    #[allow(clippy::unused_async)]
     pub async fn start(&self) -> Result<()> {
         tracing::info!("[{}] Runtime starting...", self.name);
         // TODO: Implement actual runtime logic
@@ -45,6 +47,7 @@ impl Runtime {
     }
 
     /// Stop the runtime
+    #[allow(clippy::unused_async)]
     pub async fn stop(&self) -> Result<()> {
         tracing::info!("[{}] Runtime stopping...", self.name);
         // TODO: Implement graceful shutdown

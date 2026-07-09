@@ -7,6 +7,25 @@
 //! - `Pipeline`: Combines source, transforms, and sink into a processing chain
 //! - `Record`: Generic record type for data interchange
 
+// Clippy: strict mode
+#![deny(clippy::all)]
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::too_many_lines,
+    clippy::cognitive_complexity
+)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc
+)]
+
 pub mod error;
 pub mod pipeline;
 pub mod record;

@@ -34,7 +34,7 @@ impl VecSink {
         }
     }
 
-    pub async fn into_records(self) -> Vec<Record> {
+    pub fn into_records(self) -> Vec<Record> {
         self.records.into_inner()
     }
 }
@@ -42,8 +42,7 @@ impl VecSink {
 #[async_trait]
 impl Sink for VecSink {
     async fn send(&self, record: Record) -> Result<()> {
-        let mut records = self.records.lock().await;
-        records.push(record);
+        self.records.lock().await.push(record);
         Ok(())
     }
 

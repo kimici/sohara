@@ -20,6 +20,7 @@ impl Pipeline {
     }
 
     /// Get the pipeline name
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -39,55 +40,19 @@ impl Pipeline {
         let mut stream = source.stream().await?;
 
         while let Some(record) = stream.next().await {
-            match record {
-                Ok(record) => {
-                    // Apply transforms sequentially
-                    let mut current = record;
-                    let mut skip = false;
-
-                    for transform in transforms {
-                        match transform.transform(current.clone()).await {
-                            Ok(transformed) => current = transformed,
-                            Err(crate::Error::Transform(_)) => {
-                                // Transform filtered out the record
-                                skip = true;
-                                stats.filtered += 1;
-                                break;
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "[{}] Transform '{}' failed: {}",
-                                    self.name,
-                                    transform.name(),
-                                    e
-                                );
-                                stats.errors += 1;
-                                skip = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if !skip {
-                        match sink.send(current).await {
-                            Ok(()) => stats.processed += 1,
-                            Err(e) => {
-                                tracing::error!("[{}] Sink failed: {}", self.name, e);
-                                stats.errors += 1;
-                            }
-                        }
-                    }
-                }
+            let record = match record {
+                Ok(r) => r,
                 Err(e) => {
                     tracing::error!("[{}] Source error: {}", self.name, e);
                     stats.errors += 1;
+                    continue;
                 }
-            }
+            };
+            self.process_record(record, transforms, sink, &mut stats)
+                .await;
         }
 
-        // Flush the sink
         sink.flush().await?;
-
         Ok(stats)
     }
 
@@ -104,37 +69,63 @@ impl Pipeline {
         let mut stream = source.stream().await?;
 
         while let Some(record) = stream.next().await {
-            match record {
-                Ok(record) => {
-                    let mut current = record;
-                    let mut skip = false;
-
-                    for transform in transforms {
-                        match transform.transform(current.clone()).await {
-                            Ok(transformed) => current = transformed,
-                            Err(crate::Error::Transform(_)) => {
-                                skip = true;
-                                break;
-                            }
-                            Err(e) => {
-                                tracing::error!("Transform failed: {}", e);
-                                skip = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if !skip {
-                        results.push(current);
-                    }
-                }
+            let record = match record {
+                Ok(r) => r,
                 Err(e) => {
                     tracing::error!("Source error: {}", e);
+                    continue;
                 }
+            };
+            if let Some(transformed) = self.apply_transforms(record, transforms).await {
+                results.push(transformed);
             }
         }
 
         Ok(results)
+    }
+
+    /// Process a single record through transforms and send to sink
+    async fn process_record(
+        &self,
+        record: Record,
+        transforms: &[Box<dyn Transform>],
+        sink: &impl Sink,
+        stats: &mut PipelineStats,
+    ) {
+        let Some(transformed) = self.apply_transforms(record, transforms).await else {
+            return;
+        };
+        match sink.send(transformed).await {
+            Ok(()) => stats.processed += 1,
+            Err(e) => {
+                tracing::error!("[{}] Sink failed: {}", self.name, e);
+                stats.errors += 1;
+            }
+        }
+    }
+
+    /// Apply transforms sequentially, returning `None` if filtered
+    async fn apply_transforms(
+        &self,
+        mut record: Record,
+        transforms: &[Box<dyn Transform>],
+    ) -> Option<Record> {
+        for transform in transforms {
+            match transform.transform(record.clone()).await {
+                Ok(transformed) => record = transformed,
+                Err(crate::Error::Transform(_)) => return None,
+                Err(e) => {
+                    tracing::error!(
+                        "[{}] Transform '{}' failed: {}",
+                        self.name,
+                        transform.name(),
+                        e
+                    );
+                    return None;
+                }
+            }
+        }
+        Some(record)
     }
 }
 
@@ -147,6 +138,7 @@ pub struct PipelineStats {
 }
 
 impl PipelineStats {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

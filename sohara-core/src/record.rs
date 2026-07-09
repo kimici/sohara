@@ -45,6 +45,7 @@ impl Record {
     }
 
     /// Create a record from a JSON value
+    #[must_use]
     pub fn from_json(value: serde_json::Value) -> Self {
         match value {
             serde_json::Value::Object(map) => Self::new(RecordData::Object(map)),
@@ -55,6 +56,7 @@ impl Record {
     }
 
     /// Get a field value by name (for object records)
+    #[must_use]
     pub fn get(&self, field: &str) -> Option<&serde_json::Value> {
         match &self.data {
             RecordData::Object(map) => map.get(field),
@@ -64,26 +66,25 @@ impl Record {
 
     /// Set a field value (for object records)
     pub fn set(&mut self, field: impl Into<String>, value: serde_json::Value) {
-        match &mut self.data {
-            RecordData::Object(map) => {
-                map.insert(field.into(), value);
-            }
-            _ => {
-                // Convert to object if not already
-                let mut map = serde_json::Map::new();
-                map.insert(field.into(), value);
-                self.data = RecordData::Object(map);
-            }
+        if let RecordData::Object(map) = &mut self.data {
+            map.insert(field.into(), value);
+        } else {
+            // Convert to object if not already
+            let mut map = serde_json::Map::new();
+            map.insert(field.into(), value);
+            self.data = RecordData::Object(map);
         }
     }
 
     /// Add metadata to the record
+    #[must_use]
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
 
     /// Convert to JSON value
+    #[must_use]
     pub fn to_json(&self) -> serde_json::Value {
         match &self.data {
             RecordData::Object(map) => serde_json::Value::Object(map.clone()),
@@ -104,6 +105,7 @@ pub struct RecordBuilder {
 }
 
 impl RecordBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             id: None,
@@ -112,28 +114,32 @@ impl RecordBuilder {
         }
     }
 
+    #[must_use]
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
         self
     }
 
+    #[must_use]
     pub fn data(mut self, data: impl Into<RecordData>) -> Self {
         self.data = Some(data.into());
         self
     }
 
+    #[must_use]
     pub fn metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
 
+    #[must_use]
     pub fn build(self) -> Record {
         Record {
             id: self.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             timestamp: Utc::now(),
             data: self
                 .data
-                .unwrap_or(RecordData::Object(serde_json::Map::new())),
+                .unwrap_or_else(|| RecordData::Object(serde_json::Map::new())),
             metadata: self.metadata,
         }
     }
@@ -149,34 +155,34 @@ impl Default for RecordBuilder {
 impl From<serde_json::Value> for RecordData {
     fn from(value: serde_json::Value) -> Self {
         match value {
-            serde_json::Value::Object(map) => RecordData::Object(map),
-            serde_json::Value::Array(arr) => RecordData::Array(arr),
-            serde_json::Value::String(s) => RecordData::Text(s),
-            other => RecordData::Text(other.to_string()),
+            serde_json::Value::Object(map) => Self::Object(map),
+            serde_json::Value::Array(arr) => Self::Array(arr),
+            serde_json::Value::String(s) => Self::Text(s),
+            other => Self::Text(other.to_string()),
         }
     }
 }
 
 impl From<String> for RecordData {
     fn from(s: String) -> Self {
-        RecordData::Text(s)
+        Self::Text(s)
     }
 }
 
 impl From<&str> for RecordData {
     fn from(s: &str) -> Self {
-        RecordData::Text(s.to_string())
+        Self::Text(s.to_string())
     }
 }
 
 impl From<serde_json::Map<String, serde_json::Value>> for RecordData {
     fn from(map: serde_json::Map<String, serde_json::Value>) -> Self {
-        RecordData::Object(map)
+        Self::Object(map)
     }
 }
 
 impl From<Vec<serde_json::Value>> for RecordData {
     fn from(arr: Vec<serde_json::Value>) -> Self {
-        RecordData::Array(arr)
+        Self::Array(arr)
     }
 }

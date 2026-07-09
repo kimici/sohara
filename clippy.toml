@@ -1,0 +1,5 @@
+# Clippy configuration for Sohara
+cognitive-complexity-threshold = 20
+type-complexity-threshold = 250
+too-many-lines-threshold = 30
+too-many-arguments-threshold = 5
