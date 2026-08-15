@@ -37,11 +37,12 @@ pub(crate) struct Inner {
     pub(crate) seq: HashMap<String, u64>,
     pub(crate) routes: HashMap<String, RouteDecl>,
     pub(crate) round_robin: HashMap<String, u64>,
+    pub(crate) relay: HashMap<String, crate::relay_api::RelayQueue>,
 }
 
 /// The plane's source of truth plus live agent state.
 pub struct Registry {
-    inner: Mutex<Inner>,
+    pub(crate) inner: Mutex<Inner>,
     path: Option<PathBuf>,
 }
 

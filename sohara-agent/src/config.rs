@@ -45,6 +45,12 @@ pub struct InstanceSpec {
     /// The flow's http trigger address (host:port) for gateway routing (D4).
     #[serde(default)]
     pub trigger: Option<String>,
+    /// Plane relay URL bridging the instance event bus (D5a).
+    #[serde(default)]
+    pub relay: Option<String>,
+    /// Bearer token for the relay endpoints.
+    #[serde(default)]
+    pub relay_token: Option<String>,
     /// Bearer token for the instance admin API.
     #[serde(default)]
     pub admin_token: Option<String>,
@@ -77,6 +83,8 @@ impl Default for InstanceSpec {
             bin: default_bin(),
             admin: None,
             trigger: None,
+            relay: None,
+            relay_token: None,
             admin_token: None,
             resume: false,
             args: Vec::new(),

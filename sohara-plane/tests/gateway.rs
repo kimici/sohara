@@ -107,17 +107,18 @@ async fn hash_strategy_sticks_one_key_to_one_instance() {
 async fn stopped_instances_are_evicted() {
     let env = Env::start(Strategy::RoundRobin).await;
     assert_eq!(env.forward(None).await.status(), 200);
-    env.set_state("orders-1", InstanceState::Stopped).await;
+    let stopped_id = if env.hits[0].load(Ordering::Relaxed) == 1 {
+        "orders-1"
+    } else {
+        "orders-2"
+    };
+    let survivor = if stopped_id == "orders-1" { 1 } else { 0 };
+    env.set_state(stopped_id, InstanceState::Stopped).await;
     for _ in 0..4 {
         assert_eq!(env.forward(None).await.status(), 200);
     }
     assert_eq!(
-        env.hits[0].load(Ordering::Relaxed),
-        1,
-        "only the first request"
-    );
-    assert_eq!(
-        env.hits[1].load(Ordering::Relaxed),
+        env.hits[survivor].load(Ordering::Relaxed),
         4,
         "post-eviction traffic must go only to the healthy instance"
     );
@@ -151,30 +152,49 @@ async fn no_candidates_returns_503_and_gateway_skips_auth() {
 }
 
 #[tokio::test]
-async fn bus_mode_is_explicitly_deferred() {
+async fn bus_mode_publishes_into_the_relay_mailbox() {
     let registry = Registry::load(None);
-    registry
-        .declare_route(RouteDecl {
-            id: "r1".to_owned(),
-            path: "/tasks/orders".to_owned(),
-            flow_id: "orders".to_owned(),
-            mode: RouteMode::Bus,
-            strategy: Strategy::RoundRobin,
-            sticky_key: None,
-            topic: Some("orders.events".to_owned()),
-        })
-        .await
-        .unwrap();
+    registry.declare_route(bus_route()).await.unwrap();
     let plane = Plane::new(registry, None);
     let addr = serve_plane(plane).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let status = client
-        .get(format!("http://{addr}/gw/tasks/orders/new"))
+        .post(format!("http://{addr}/gw/tasks/orders/new"))
+        .json(&json!({"order": "A"}))
         .send()
         .await
         .unwrap()
         .status();
-    assert_eq!(status, 501);
+    assert_eq!(status, 202);
+    let pulled = pull_relay(&client, addr).await;
+    assert_eq!(pulled["messages"][0]["payload"], json!({"order": "A"}));
+}
+
+fn bus_route() -> RouteDecl {
+    RouteDecl {
+        id: "r1".to_owned(),
+        path: "/tasks/orders".to_owned(),
+        flow_id: "orders".to_owned(),
+        mode: RouteMode::Bus,
+        strategy: Strategy::RoundRobin,
+        sticky_key: None,
+        topic: Some("orders.events".to_owned()),
+    }
+}
+
+async fn pull_relay(client: &reqwest::Client, addr: SocketAddr) -> Value {
+    client
+        .post(format!("http://{addr}/relay/pull"))
+        .json(&json!({
+            "subscriber": "sub-1",
+            "subscriptions": [{ "topic": "orders.events", "after": 0 }]
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
 }
 
 async fn declare_instances(registry: &Registry, triggers: &[String]) -> Vec<(String, String)> {

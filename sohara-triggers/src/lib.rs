@@ -4,11 +4,13 @@ pub mod bus;
 pub mod cron;
 pub mod http;
 pub mod queue;
+pub mod relay;
 
 pub use bus::InProcessBus;
 pub use cron::CronSource;
 pub use http::HttpSource;
 pub use queue::QueueSource;
+pub use relay::RelayBus;
 
 use std::sync::Arc;
 

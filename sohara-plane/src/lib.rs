@@ -5,6 +5,7 @@ mod gateway;
 mod manager;
 mod reconcile;
 mod registry;
+mod relay_api;
 mod store;
 pub mod types;
 
@@ -51,6 +52,7 @@ impl Plane {
         Router::new()
             .merge(authed(agent_api::agent_router(plane.clone())))
             .merge(authed(manager::manager_router(plane.clone())))
+            .merge(authed(relay_api::relay_router(plane.clone())))
             .merge(gateway::gateway_router(plane.clone()))
     }
 }

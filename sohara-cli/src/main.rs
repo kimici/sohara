@@ -11,8 +11,10 @@ use sohara_persistence::JsonFileStore;
 
 mod history;
 mod report;
+mod scaffold;
 use history::{append_history, default_history_path, failed_report, show_history};
 use report::{print_stats, print_steps};
+use scaffold::init_project;
 
 #[derive(Parser)]
 #[command(
@@ -58,6 +60,12 @@ enum Command {
         /// Reuse the stored run id on start (restart contract)
         #[arg(long)]
         resume: bool,
+        /// Bridge the event bus to a plane relay (D5a)
+        #[arg(long, value_name = "URL")]
+        relay: Option<String>,
+        /// Bearer token for the relay endpoints
+        #[arg(long, value_name = "TOKEN")]
+        relay_token: Option<String>,
         /// Print the per-step statistics table on shutdown
         #[arg(long)]
         verbose: bool,
@@ -107,19 +115,40 @@ async fn dispatch(cli: Cli) -> Result<()> {
             admin_token,
             history,
             resume,
+            relay,
+            relay_token,
             verbose,
         } => {
-            let flags = ServeFlags {
-                admin,
-                admin_token,
-                history,
-                resume,
-            };
-            serve_flow(&flow, flags, verbose).await
+            serve_flow(
+                &flow,
+                serve_flags(admin, admin_token, history, resume, relay, relay_token),
+                verbose,
+            )
+            .await
         }
         Command::Approve { flow, step } => approve_flow(&flow, step.as_deref()).await,
         Command::History { history, limit } => show_history(history.as_deref(), limit),
         Command::Init { dir } => init_project(&dir),
+    }
+}
+
+/// Pack the serve flags (one call site; arg-count lint is fine here).
+#[allow(clippy::too_many_arguments)]
+fn serve_flags(
+    admin: Option<SocketAddr>,
+    admin_token: Option<String>,
+    history: Option<PathBuf>,
+    resume: bool,
+    relay: Option<String>,
+    relay_token: Option<String>,
+) -> ServeFlags {
+    ServeFlags {
+        admin,
+        admin_token,
+        history,
+        resume,
+        relay,
+        relay_token,
     }
 }
 
@@ -129,6 +158,8 @@ struct ServeFlags {
     admin_token: Option<String>,
     history: Option<PathBuf>,
     resume: bool,
+    relay: Option<String>,
+    relay_token: Option<String>,
 }
 
 fn init_logging() {
@@ -207,6 +238,8 @@ async fn serve_flow(flow: &Path, flags: ServeFlags, verbose: bool) -> Result<()>
                 .unwrap_or_else(|| default_history_path().to_owned()),
         ),
         resume: flags.resume,
+        relay: flags.relay,
+        relay_token: flags.relay_token,
     };
     let stats =
         sohara_runtime::serve_with_shutdown_opts(&config, &registry, bus, ctrl_c(), options)
@@ -248,34 +281,3 @@ async fn ctrl_c() {
         tokio::signal::ctrl_c().await.expect("ctrl-c handler");
     }
 }
-
-fn init_project(dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(dir.join("data"))?;
-    std::fs::write(dir.join("flow.yaml"), FLOW_YAML)?;
-    std::fs::write(dir.join("data").join("input.csv"), INPUT_CSV)?;
-    println!("Created {}/flow.yaml and data/input.csv", dir.display());
-    Ok(())
-}
-
-const FLOW_YAML: &str = r#"name: basic
-version: "1"
-steps:
-  - id: in
-    kind: source
-    type: file
-    config: { path: data/input.csv, format: csv }
-  - id: adult
-    kind: transform
-    type: filter
-    config: { where: "age >= 18" }
-  - id: enrich
-    kind: transform
-    type: map
-    config: { expr: { processed_at: "now()" } }
-  - id: out
-    kind: sink
-    type: file
-    config: { path: output/result.jsonl, format: jsonl }
-"#;
-
-const INPUT_CSV: &str = "name,age\nAlice,30\nBob,15\nCarol,40\n";

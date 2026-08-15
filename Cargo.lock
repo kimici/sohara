@@ -1350,6 +1350,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sohara-agent",
+ "sohara-triggers",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1379,11 +1380,13 @@ dependencies = [
 name = "sohara-triggers"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "axum",
  "chrono",
  "cron",
  "futures",
+ "reqwest",
  "serde",
  "serde_json",
  "sohara-config",
@@ -1391,6 +1394,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -27,6 +27,10 @@ pub struct ServeOptions {
     pub history: Option<std::path::PathBuf>,
     /// Reuse the stored run id on start (D1/D2 restart contract).
     pub resume: bool,
+    /// Plane relay URL: bridge the local event bus to the plane (D5a).
+    pub relay: Option<String>,
+    /// Bearer token for the relay endpoints.
+    pub relay_token: Option<String>,
 }
 
 /// Run a flow in serve mode until the shutdown future resolves, then stop
@@ -55,9 +59,20 @@ pub async fn serve_with_shutdown_opts(
     options: ServeOptions,
 ) -> Result<StatsSnapshot> {
     let triggers = build_triggers(flow, &bus)?;
+    let relay_bus = options.relay.as_ref().map(|plane| {
+        sohara_triggers::RelayBus::spawn(
+            bus.clone(),
+            plane.clone(),
+            options.relay_token.clone(),
+            queue_topics(flow),
+        )
+    });
     let ctx = BuildContext {
         vars: flow.vars.clone().into_iter().collect(),
-        bus: Some(bus),
+        bus: Some(relay_bus.clone().map_or_else(
+            || bus as std::sync::Arc<dyn sohara_core::EventBus>,
+            |bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>,
+        )),
     };
     let graph = Arc::new(FlowGraph::build_with_triggers(
         flow, registry, &ctx, &triggers,
@@ -114,6 +129,9 @@ pub async fn serve_with_shutdown_opts(
     };
     if let Some(task) = admin_task {
         task.abort();
+    }
+    if let Some(bridge) = &relay_bus {
+        bridge.stop();
     }
     if let Some(path) = &options.history {
         let report = executor.report().await;
@@ -201,4 +219,19 @@ async fn shutdown_signal() {
     {
         tokio::signal::ctrl_c().await.expect("ctrl-c handler");
     }
+}
+
+/// Topics subscribed by the flow's queue triggers (relay subscriptions).
+fn queue_topics(flow: &sohara_config::FlowConfig) -> Vec<String> {
+    flow.triggers
+        .iter()
+        .filter(|trigger| trigger.trigger_type == "queue")
+        .filter_map(|trigger| {
+            trigger
+                .config()
+                .ok()
+                .and_then(|config| config.get("topic").cloned())
+                .and_then(|value| value.as_str().map(str::to_owned))
+        })
+        .collect()
 }

@@ -22,6 +22,12 @@ fn launch_command(spec: &InstanceSpec, admin: &str) -> Command {
         if let Some(token) = &spec.admin_token {
             command.args(["--admin-token", token]);
         }
+        if let Some(relay) = &spec.relay {
+            command.args(["--relay", relay]);
+        }
+        if let Some(token) = &spec.relay_token {
+            command.args(["--relay-token", token]);
+        }
     } else {
         command.args(&spec.args);
     }

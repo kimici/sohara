@@ -31,7 +31,7 @@ async fn gateway(
         return (StatusCode::NOT_FOUND, "no route matches this path").into_response();
     };
     match route.mode {
-        RouteMode::Bus => (StatusCode::NOT_IMPLEMENTED, "bus mode arrives with D5").into_response(),
+        RouteMode::Bus => bus_dispatch(&plane, &route, &body).await,
         RouteMode::Proxy => {
             let request = ForwardRequest {
                 path: &path,
@@ -50,6 +50,17 @@ struct ForwardRequest<'a> {
     method: &'a Method,
     headers: &'a HeaderMap,
     body: &'a Bytes,
+}
+
+/// Publish the request body into the route topic's relay mailbox (D5a).
+async fn bus_dispatch(plane: &Plane, route: &crate::types::RouteDecl, body: &Bytes) -> Response {
+    let Some(topic) = &route.topic else {
+        return (StatusCode::BAD_REQUEST, "bus route needs a topic").into_response();
+    };
+    let payload: serde_json::Value = serde_json::from_slice(body)
+        .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(body).into_owned()));
+    plane.registry.relay_publish(topic, payload).await;
+    (StatusCode::ACCEPTED, "accepted").into_response()
 }
 
 /// Forward to candidate instance triggers, retrying once on failure (D4).
