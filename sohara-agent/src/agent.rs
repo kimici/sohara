@@ -84,6 +84,7 @@ impl Agent {
                 healthy: snapshot.healthy,
                 restarts: snapshot.restarts,
                 admin: snapshot.admin,
+                trigger: snapshot.trigger,
             });
         }
         Heartbeat {

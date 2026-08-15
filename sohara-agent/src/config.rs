@@ -31,7 +31,7 @@ pub struct PlaneConfig {
 }
 
 /// One managed sohara instance.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstanceSpec {
     pub id: String,
     /// Path to the flow YAML passed to `sohara serve`.
@@ -42,6 +42,9 @@ pub struct InstanceSpec {
     /// Instance admin address (host:port); auto-picked when omitted.
     #[serde(default)]
     pub admin: Option<String>,
+    /// The flow's http trigger address (host:port) for gateway routing (D4).
+    #[serde(default)]
+    pub trigger: Option<String>,
     /// Bearer token for the instance admin API.
     #[serde(default)]
     pub admin_token: Option<String>,
@@ -73,6 +76,7 @@ impl Default for InstanceSpec {
             flow: String::new(),
             bin: default_bin(),
             admin: None,
+            trigger: None,
             admin_token: None,
             resume: false,
             args: Vec::new(),
@@ -83,7 +87,7 @@ impl Default for InstanceSpec {
 }
 
 /// Restart / health policy for one instance.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Policy {
     /// Restart on crash / health failure (false = mark failed only).
     #[serde(default = "default_true")]

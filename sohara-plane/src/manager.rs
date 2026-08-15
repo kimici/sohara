@@ -9,7 +9,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::types::{Desired, FlowDecl, InstanceDecl};
+use crate::types::{Desired, FlowDecl, InstanceDecl, RouteDecl};
 use crate::Plane;
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +26,8 @@ pub fn manager_router(plane: Arc<Plane>) -> Router {
         .route("/api/instances/:id", delete(remove_instance))
         .route("/api/flows", get(flows))
         .route("/api/flows", post(put_flow))
+        .route("/api/routes", get(routes).post(declare_route))
+        .route("/api/routes/:id", delete(remove_route))
         .with_state(plane)
 }
 
@@ -76,6 +78,33 @@ async fn remove_instance(State(plane): State<Arc<Plane>>, Path(id): Path<String>
 
 async fn flows(State(plane): State<Arc<Plane>>) -> Json<Value> {
     Json(json!(plane.registry.list_flows().await))
+}
+
+async fn routes(State(plane): State<Arc<Plane>>) -> Json<Value> {
+    Json(json!(plane.registry.list_routes().await))
+}
+
+async fn declare_route(
+    State(plane): State<Arc<Plane>>,
+    Json(route): Json<RouteDecl>,
+) -> StatusCode {
+    match plane.registry.declare_route(route).await {
+        Ok(()) => StatusCode::CREATED,
+        Err(error) => {
+            tracing::error!("declare route failed: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+async fn remove_route(State(plane): State<Arc<Plane>>, Path(id): Path<String>) -> StatusCode {
+    match plane.registry.remove_route(&id).await {
+        Ok(()) => StatusCode::OK,
+        Err(error) => {
+            tracing::error!("remove route failed: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 async fn put_flow(State(plane): State<Arc<Plane>>, Json(flow): Json<FlowDecl>) -> StatusCode {

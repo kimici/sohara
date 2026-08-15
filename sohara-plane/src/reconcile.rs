@@ -93,6 +93,7 @@ mod tests {
         InstanceDecl {
             id: "i1".to_owned(),
             node: "n1".to_owned(),
+            flow_id: None,
             desired,
             spec: sohara_agent::InstanceSpec {
                 id: "i1".to_owned(),
@@ -109,6 +110,7 @@ mod tests {
             healthy: true,
             restarts: 0,
             admin: None,
+            trigger: None,
         }
     }
 

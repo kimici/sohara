@@ -16,6 +16,9 @@ pub struct InstanceReport {
     pub healthy: bool,
     pub restarts: u32,
     pub admin: Option<String>,
+    /// The flow's http trigger address, for gateway routing (D4).
+    #[serde(default)]
+    pub trigger: Option<String>,
 }
 
 /// Periodic heartbeat payload.
@@ -97,6 +100,18 @@ impl HttpTransport {
         }
         Ok(response.json().await?)
     }
+
+    async fn post_status(&self, path: &str, body: &impl Serialize) -> Result<()> {
+        let mut request = self.client.post(format!("{}{path}", self.base));
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.json(body).send().await?;
+        if !response.status().is_success() {
+            bail!("plane {path} -> {}", response.status());
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -106,6 +121,6 @@ impl ControlTransport for HttpTransport {
     }
 
     async fn ack(&self, ack: &CommandAck) -> Result<()> {
-        self.send("/agent/ack", ack).await
+        self.post_status("/agent/ack", ack).await
     }
 }

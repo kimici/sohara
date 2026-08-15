@@ -173,7 +173,7 @@ instances:
 | D1 ✅ | 单机 Dashboard：admin API 扩展（status/history/approvals/errors/错误环形缓冲/`--admin-token`）+ 内嵌 `/admin/ui`；serve 停止写 history；CLI `serve --resume` | 已实现：`sohara serve --admin` 打开 UI；status/errors/approvals/history 端点可用；无 token 401；暂停期间事件不处理；停机写 history |
 | D2 ✅ | `sohara-agent`：进程管理（spawn/kill/重启退避）、本地 1s 健康检查、心跳上报、命令执行、token；单机 `serve --resume` | 已实现：`sohara-agent` crate（实例监督状态机/重启策略/HttpTransport 心跳+命令队列+seq 去重）；e2e 用真实 `sohara` 二进制验证拉起/健康/停机；plane stub 测试验证心跳与 pause 命令执行 |
 | D3 ✅ | `sohara-plane` 基础：Registry（JSON 原子持久化）、Manager API（instances CRUD/desired 更新/flows）、`/agent/heartbeat`+`/agent/ack` 接收端（命令队列+seq 去重）、desired/actual 对账（心跳返回命令+期望实例集，agent 对账成员与状态） | 已实现：声明实例 → agent 拉起真实 sohara 进程；desired=stopped → 实例停机；desired=running → 重启；状态持久化跨重启 |
-| D4 | Gateway + 调度：路由表、proxy 默认模式、健康摘除、请求级重试 | 两个实例按策略分布流量；停一个实例流量自动切走 |
+| D4 ✅ | Gateway + 调度：路由表（`/api/routes`，path→flow_id）、proxy 默认模式（bus 显式声明，暂返 501 待 D5a）、round_robin/hash 策略（tags/least-loaded 延后）、健康摘除（仅 running 且带 trigger 地址可路由）、请求级重试（2 候选）、全挂 503、Gateway 免 token（外部统一入口） | 已实现：两个真实实例按 round-robin 均分流量；停一个实例后流量全部切到存活实例 |
 | D5a | PlaneRelayBus：跨机 queue 发布/订阅（agent 转发、有界积压+丢弃告警） | A 机发布 → B 机 queue 流程消费落盘；B 机离线时积压/丢弃按预期 |
 | D5b | （可选，后期）NATS/JetStream：`NatsBus` + `nats` 触发器；least-loaded 策略启用 | 跨机持久化投递；重启不丢消息 |
 | D6 | 全局 Dashboard + 安全收尾（mTLS 可选）+ 文档 + Gateway 前置 LB 评估 | Manager UI 完成 §7 页面；三向 token 全链路生效 |

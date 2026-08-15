@@ -58,6 +58,7 @@ pub(crate) struct Shared {
     pub(crate) healthy: bool,
     pub(crate) restarts: u32,
     pub(crate) admin: Option<String>,
+    pub(crate) trigger: Option<String>,
 }
 
 /// Read-only instance state snapshot (heartbeat payloads, tests).
@@ -69,12 +70,14 @@ pub struct InstanceSnapshot {
     pub healthy: bool,
     pub restarts: u32,
     pub admin: Option<String>,
+    pub trigger: Option<String>,
 }
 
 /// Supervises one instance: spawns the process, probes health, honors
 /// lifecycle commands, and restarts according to policy.
 pub struct InstanceManager {
     id: String,
+    spec: InstanceSpec,
     snapshot: Arc<RwLock<Shared>>,
     cmd_tx: mpsc::UnboundedSender<InstanceCommand>,
 }
@@ -98,9 +101,11 @@ impl InstanceManager {
             healthy: false,
             restarts: 0,
             admin: spec.admin.clone(),
+            trigger: spec.trigger.clone(),
         }));
         let manager = Arc::new(Self {
             id: spec.id.clone(),
+            spec: spec.clone(),
             snapshot: shared,
             cmd_tx,
         });
@@ -119,6 +124,12 @@ impl InstanceManager {
         &self.id
     }
 
+    /// The launch spec this manager was created with (D4 spec updates).
+    #[must_use]
+    pub fn spec(&self) -> &InstanceSpec {
+        &self.spec
+    }
+
     /// Send a lifecycle command (fire-and-forget).
     pub fn send(&self, command: InstanceCommand) {
         let _ = self.cmd_tx.send(command);
@@ -134,6 +145,7 @@ impl InstanceManager {
             healthy: shared.healthy,
             restarts: shared.restarts,
             admin: shared.admin.clone(),
+            trigger: shared.trigger.clone(),
         }
     }
 

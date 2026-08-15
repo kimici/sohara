@@ -1,6 +1,7 @@
 //! Sohara control plane: registry + manager API + agent API (D3)
 
 mod agent_api;
+mod gateway;
 mod manager;
 mod reconcile;
 mod registry;
@@ -8,7 +9,9 @@ mod store;
 pub mod types;
 
 pub use registry::Registry;
-pub use types::{Desired, FlowDecl, InstanceDecl, InstanceView, NodeView};
+pub use types::{
+    Desired, FlowDecl, InstanceDecl, InstanceView, NodeView, RouteDecl, RouteMode, Strategy,
+};
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,13 +41,17 @@ impl Plane {
         Self::new(Registry::load(state), token)
     }
 
-    /// The combined router (agent API + manager API + auth middleware).
+    /// The combined router. `/agent/*` and `/api/*` require the token when
+    /// one is configured; the gateway is the unauthenticated external entry.
     pub fn router(self: &Arc<Self>) -> Router {
         let plane = self.clone();
+        let authed = |router: Router| {
+            router.layer(axum::middleware::from_fn_with_state(plane.clone(), auth))
+        };
         Router::new()
-            .merge(agent_api::agent_router(plane.clone()))
-            .merge(manager::manager_router(plane.clone()))
-            .layer(axum::middleware::from_fn_with_state(plane, auth))
+            .merge(authed(agent_api::agent_router(plane.clone())))
+            .merge(authed(manager::manager_router(plane.clone())))
+            .merge(gateway::gateway_router(plane.clone()))
     }
 }
 
