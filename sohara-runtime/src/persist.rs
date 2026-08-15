@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use sohara_core::{Record, Result, StateStore};
 
 use crate::executor::Executor;
-use crate::graph::{FlowGraph, Node};
+use crate::graph::{FlowGraph, Node, NodeStep};
 use crate::stats::ExecutorConfig;
 
 impl Executor {
@@ -126,6 +126,42 @@ pub(crate) fn take_approve_queue(executor: &Executor, node_id: &str) -> Result<V
         .unwrap_or_default();
     store.delete(&key)?;
     Ok(parked.into_iter().map(Record::new).collect())
+}
+
+/// A summary of one approve node's parked queue (D1 dashboard).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ApproveQueueInfo {
+    pub step: String,
+    pub count: usize,
+    /// The most recent parked payload (or null when empty).
+    pub sample: Value,
+}
+
+/// List every approve node's parked queue without consuming it.
+pub fn list_approve_queues(executor: &Executor) -> Result<Vec<ApproveQueueInfo>> {
+    let Some(store) = executor.store() else {
+        return Ok(Vec::new());
+    };
+    let mut result = Vec::new();
+    for (id, node) in &executor.graph().nodes {
+        if !matches!(
+            node.step,
+            NodeStep::Control(sohara_core::ControlNode::Approve { .. })
+        ) {
+            continue;
+        }
+        let key = format!("{}:approve:{id}", executor.flow_name.as_str());
+        let parked = store
+            .load(&key)?
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default();
+        result.push(ApproveQueueInfo {
+            step: id.clone(),
+            count: parked.len(),
+            sample: parked.last().cloned().unwrap_or(Value::Null),
+        });
+    }
+    Ok(result)
 }
 
 /// A stable idempotency key: the explicit metadata key or a payload hash.

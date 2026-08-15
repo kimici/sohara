@@ -113,6 +113,7 @@ fn spawn_admin_serve(
         let options = ServeOptions {
             store: None,
             admin: Some(addr),
+            ..ServeOptions::default()
         };
         serve_with_shutdown_opts(
             &flow,

@@ -6,17 +6,22 @@ mod buffers;
 pub mod control;
 pub mod executor;
 pub mod graph;
+mod history;
 pub mod node;
+mod observe;
 mod pause;
 mod persist;
 mod routes;
 mod runner;
 pub mod serve;
 mod stats;
+mod walker;
 mod warnings;
 
+pub use admin::TriggerInfo;
 pub use executor::Executor;
 pub use graph::{ErrorPolicy, FlowGraph, Node, NodeStep, Route};
+pub use observe::{ErrorEvent, ErrorRing};
 pub use pause::PauseGate;
 pub use serve::{
     approve_pending, serve, serve_with_shutdown, serve_with_shutdown_opts, ServeOptions,

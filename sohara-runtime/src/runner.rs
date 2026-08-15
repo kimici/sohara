@@ -57,6 +57,7 @@ impl Executor {
                 Err(error) => {
                     tracing::error!("[source {root}] {error}");
                     self.counters().errors.fetch_add(1, Ordering::Relaxed);
+                    self.record_error(root, "source", error.to_string()).await;
                 }
             }
         }

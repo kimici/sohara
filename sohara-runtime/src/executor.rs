@@ -13,11 +13,11 @@ use tokio::sync::Mutex;
 use crate::pause::PauseGate;
 use crate::stats::{Counters, ExecutorConfig, RunReport, StatsSnapshot, StepStat};
 
-use sohara_core::{eval, is_truthy, Record, Result, StateStore, TransformOutcome};
+use sohara_core::{Record, Result, StateStore, TransformOutcome};
 
 use crate::buffers::{BatchBuffer, JoinBuffer};
-use crate::control::apply_control;
-use crate::graph::{ErrorPolicy, FlowGraph, Node, NodeStep};
+use crate::graph::{ErrorPolicy, FlowGraph, Node};
+use crate::observe::{ErrorEvent, ErrorRing};
 
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -30,6 +30,7 @@ pub struct Executor {
     pub(crate) batches: HashMap<String, Arc<Mutex<BatchBuffer>>>,
     pub(crate) sinks: Vec<String>,
     pub(crate) step_stats: Mutex<BTreeMap<String, StepStat>>,
+    pub(crate) error_ring: Mutex<ErrorRing>,
     started_at: String,
     pub(crate) pause: Option<Arc<PauseGate>>,
     pub(crate) store: Option<Arc<dyn StateStore>>,
@@ -56,6 +57,7 @@ impl Executor {
             batches,
             sinks,
             step_stats: Mutex::new(BTreeMap::new()),
+            error_ring: Mutex::new(ErrorRing::default()),
             started_at: chrono::Utc::now().to_rfc3339(),
             pause: config.pause,
             store: config.store,
@@ -108,103 +110,17 @@ impl Executor {
         self.pause.as_ref().is_some_and(|gate| gate.paused())
     }
 
-    pub(crate) fn walk(
-        self: &Arc<Self>,
-        record: Record,
-        node_id: String,
-    ) -> BoxFuture<'static, Result<()>> {
-        let this = self.clone();
-        Box::pin(async move {
-            let Some(node) = this.graph.node(&node_id).cloned() else {
-                tracing::warn!("route to unknown node '{node_id}', dropping record");
-                return Ok(());
-            };
-            if let Some(when) = &node.when {
-                match eval(when, &record.payload, &this.ectx()) {
-                    Ok(value) if is_truthy(&value) => {}
-                    Ok(_) => return Ok(()),
-                    Err(error) => {
-                        tracing::warn!("[{}] 'when' failed: {error}", node.id);
-                        this.counters.errors.fetch_add(1, Ordering::Relaxed);
-                        this.tick_step(&node.id, |stat| stat.errors += 1).await;
-                        return Ok(());
-                    }
-                }
-            }
-            match &node.step {
-                NodeStep::Sink(sink) => {
-                    if this.is_delivered(&record) {
-                        this.counters.duplicates.fetch_add(1, Ordering::Relaxed);
-                        return Ok(());
-                    }
-                    let started = Instant::now();
-                    let result = sink.send(record.clone()).await;
-                    let nanos = started.elapsed().as_nanos() as u64;
-                    match result {
-                        Ok(()) => {
-                            this.mark_delivered(&record);
-                            this.counters.processed.fetch_add(1, Ordering::Relaxed);
-                            this.tick_step(&node.id, |stat| {
-                                stat.processed += 1;
-                                stat.nanos += nanos;
-                            })
-                            .await;
-                            this.maybe_checkpoint().await;
-                        }
-                        Err(error) => {
-                            tracing::error!("[{}] sink failed: {error}", node.id);
-                            this.counters.errors.fetch_add(1, Ordering::Relaxed);
-                            this.tick_step(&node.id, |stat| {
-                                stat.errors += 1;
-                                stat.nanos += nanos;
-                            })
-                            .await;
-                        }
-                    }
-                }
-                NodeStep::Transform(transform) => {
-                    this.apply_transform(&node, transform.as_ref(), record)
-                        .await?;
-                }
-                NodeStep::Control(control) => {
-                    apply_control(&this, &node, control, record).await?;
-                }
-                NodeStep::Source(_) => {
-                    this.route(record, &node).await?;
-                }
-            }
-            Ok(())
-        })
+    /// Record a runtime error into the dashboard ring (D1).
+    pub(crate) async fn record_error(&self, step: &str, kind: &str, message: String) {
+        self.error_ring.lock().await.record(step, kind, message);
     }
 
-    pub(crate) fn route(
-        self: &Arc<Self>,
-        record: Record,
-        node: &Arc<Node>,
-    ) -> BoxFuture<'static, Result<()>> {
-        let this = self.clone();
-        let routes = node.routes.clone();
-        let node_id = node.id.clone();
-        Box::pin(async move {
-            for route in &routes {
-                if let Some(when) = &route.when {
-                    match eval(when, &record.payload, &this.ectx()) {
-                        Ok(value) if is_truthy(&value) => {}
-                        Ok(_) => continue,
-                        Err(error) => {
-                            tracing::warn!("[{node_id}] edge 'when' failed: {error}");
-                            this.counters.errors.fetch_add(1, Ordering::Relaxed);
-                            continue;
-                        }
-                    }
-                }
-                this.walk(record.clone(), route.to.clone()).await?;
-            }
-            Ok(())
-        })
+    /// Recent errors, newest first (D1 dashboard).
+    pub async fn error_events(&self) -> Vec<ErrorEvent> {
+        self.error_ring.lock().await.events()
     }
 
-    fn apply_transform<'a>(
+    pub(crate) fn apply_transform<'a>(
         self: &Arc<Self>,
         node: &'a Arc<Node>,
         transform: &'a dyn sohara_core::Transform,
@@ -263,6 +179,8 @@ impl Executor {
                             stat.nanos += nanos;
                         })
                         .await;
+                        this.record_error(&node.id, "transform", failure.to_string())
+                            .await;
                         tracing::warn!("[{}] failed (continue): {failure}", node.id);
                         return Ok(());
                     }
@@ -273,6 +191,8 @@ impl Executor {
                             stat.nanos += nanos;
                         })
                         .await;
+                        this.record_error(&node.id, "transform", failure.to_string())
+                            .await;
                         tracing::error!("[{}] failed: {failure}", node.id);
                         return Err(failure);
                     }

@@ -17,12 +17,21 @@ flow file, and outputs land in `examples/output/`).
 ## Serve-mode admin API (S6)
 
 ```console
-$ sohara serve examples/serve.yaml --admin 127.0.0.1:9528
+$ sohara serve examples/serve.yaml --admin 127.0.0.1:9528 [--admin-token TOKEN]
 $ curl http://127.0.0.1:9528/admin/health
 $ curl -X POST http://127.0.0.1:9528/admin/pause      # hold intake
 $ curl -X POST http://127.0.0.1:9528/admin/resume     # continue
 $ curl http://127.0.0.1:9528/admin/metrics            # run report JSON
+$ curl http://127.0.0.1:9528/admin/status             # flow/triggers/steps/paused
+$ curl http://127.0.0.1:9528/admin/approvals          # parked approve queues
+$ curl http://127.0.0.1:9528/admin/errors             # recent error stream
 ```
+
+Open `http://127.0.0.1:9528/admin/ui` in a browser for the embedded dashboard
+(overview cards, step stats, triggers, approvals, errors, run history). When
+`--admin-token` is set, every `/admin/*` call needs
+`Authorization: Bearer <token>`. Serve mode appends a run-history entry on
+shutdown.
 
 ## Run history (S6)
 

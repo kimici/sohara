@@ -43,7 +43,7 @@ steps:
 | Command | Purpose |
 |---|---|
 | `sohara run <flow.yaml> [--resume] [--verbose] [--history PATH]` | Run a flow once; `--verbose` prints per-step statistics; runs are recorded to `.sohara/history.jsonl` |
-| `sohara serve <flow.yaml> [--admin ADDR]` | Run triggers until Ctrl+C/SIGTERM; `--admin 127.0.0.1:9528` enables the admin API |
+| `sohara serve <flow.yaml> [--admin ADDR] [--admin-token T] [--resume]` | Run triggers until Ctrl+C/SIGTERM; `--admin` enables the admin API + embedded dashboard (`/admin/ui`, status/errors/approvals/history), optionally token-protected |
 | `sohara approve <flow.yaml> [--step ID]` | Approve records parked by `approve` steps |
 | `sohara history [--limit N] [--history PATH]` | Show recent runs (successful and failed) |
 | `sohara init [dir]` | Scaffold `flow.yaml` + `data/input.csv` |

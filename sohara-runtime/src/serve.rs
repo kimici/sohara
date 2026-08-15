@@ -14,12 +14,19 @@ use crate::graph::{FlowGraph, NodeStep};
 use crate::persist::take_approve_queue;
 use crate::stats::{ExecutorConfig, StatsSnapshot};
 
-/// Extra serve-mode options (S4 state store, S6 admin API).
+/// Extra serve-mode options (S4 state store, S6 admin API, D1 dashboard).
 #[derive(Default)]
 pub struct ServeOptions {
     pub store: Option<Arc<dyn StateStore>>,
-    /// Bind the admin API (health / pause / resume / metrics) to this address.
+    /// Bind the admin API (health / pause / resume / metrics / dashboard) here.
     pub admin: Option<std::net::SocketAddr>,
+    /// Require `Authorization: Bearer <token>` on admin endpoints.
+    pub admin_token: Option<String>,
+    /// History file: served by `/admin/history`; serve mode appends an entry
+    /// when it stops.
+    pub history: Option<std::path::PathBuf>,
+    /// Reuse the stored run id on start (D1/D2 restart contract).
+    pub resume: bool,
 }
 
 /// Run a flow in serve mode until the shutdown future resolves, then stop
@@ -31,11 +38,15 @@ pub async fn serve_with_shutdown(
     store: Option<Arc<dyn StateStore>>,
     shutdown: impl Future<Output = ()> + Send,
 ) -> Result<StatsSnapshot> {
-    let options = ServeOptions { store, admin: None };
+    let options = ServeOptions {
+        store,
+        admin: None,
+        ..ServeOptions::default()
+    };
     serve_with_shutdown_opts(flow, registry, bus, shutdown, options).await
 }
 
-/// Serve mode with extended options (state store, admin API; S4/S6).
+/// Serve mode with extended options (state store, admin API, history).
 pub async fn serve_with_shutdown_opts(
     flow: &sohara_config::FlowConfig,
     registry: &ComponentRegistry,
@@ -53,7 +64,7 @@ pub async fn serve_with_shutdown_opts(
     )?);
     let config = ExecutorConfig {
         store: options.store,
-        resume: false,
+        resume: options.resume,
         checkpoint_every: flow
             .checkpoint
             .as_ref()
@@ -62,7 +73,22 @@ pub async fn serve_with_shutdown_opts(
     };
     let executor = Arc::new(Executor::new(graph, ctx.vars.clone(), config));
     let admin_task = match options.admin {
-        Some(addr) => Some(crate::admin::spawn(addr, executor.clone()).await?),
+        Some(addr) => {
+            let state = Arc::new(crate::admin::AdminState {
+                executor: executor.clone(),
+                triggers: flow
+                    .triggers
+                    .iter()
+                    .map(|trigger| crate::admin::TriggerInfo {
+                        id: trigger.id.clone(),
+                        kind: trigger.trigger_type.clone(),
+                    })
+                    .collect(),
+                token: options.admin_token,
+                history: options.history.clone(),
+            });
+            Some(crate::admin::spawn(addr, state).await?)
+        }
         None => None,
     };
     for trigger in &triggers {
@@ -72,9 +98,9 @@ pub async fn serve_with_shutdown_opts(
         let executor = executor.clone();
         async move { executor.run().await }
     });
-    tokio::select! {
+    let outcome: Result<StatsSnapshot> = tokio::select! {
         result = &mut run_task => {
-            result.map_err(|error| Error::Runtime(format!("executor task failed: {error}")))??;
+            result.map_err(|error| Error::Runtime(format!("executor task failed: {error}")))?
         }
         _ = shutdown => {
             tracing::info!("graceful shutdown requested");
@@ -83,13 +109,23 @@ pub async fn serve_with_shutdown_opts(
             }
             run_task
                 .await
-                .map_err(|error| Error::Runtime(format!("executor task failed: {error}")))??;
+                .map_err(|error| Error::Runtime(format!("executor task failed: {error}")))?
         }
-    }
+    };
     if let Some(task) = admin_task {
         task.abort();
     }
-    Ok(executor.snapshot())
+    if let Some(path) = &options.history {
+        let report = executor.report().await;
+        let (status, error) = match &outcome {
+            Ok(_) => ("ok", None),
+            Err(error) => ("error", Some(error.to_string())),
+        };
+        if let Err(error) = crate::history::append(path, &report, status, error.as_deref()) {
+            tracing::error!("failed to append run history: {error}");
+        }
+    }
+    outcome
 }
 
 /// Run a flow in serve mode until SIGINT/SIGTERM.

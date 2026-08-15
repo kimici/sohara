@@ -1,22 +1,22 @@
 # Workstate
 
 ## 当前焦点
-- 路线图 S0–S7 已完成；**分布式管理层 + Dashboard 设计 v2 已定稿**（challenge 完成，三项决策确认）。
+- 分布式管理层实施中（目标 goal-86bd2ea3）：**D1 单机 Dashboard 已完成**，下一步 **D2 sohara-agent**。
 
 ## 状态 / 阻塞
-- 无阻塞。设计文档：`docs/design/distributed-plane-and-dashboard.md`（v2，D1–D6 路线）。
+- 无阻塞。D1 全绿：97 测试、clippy 0、fmt、长度门禁；e2e 验证（token 401/200、暂停阻断、停机写历史、UI HTML）。
 - 沙箱环境约束：cargo 需 `CARGO_HOME=/Users/qliu23/workspace/fe/sohara/.cargo-home`。
+- 提交状态：S0–S7 与设计文档已提交（a80a462、4458843）；D1 改动待提交。
 
 ## 最近完成
-- S6/S7：PauseGate + admin API + run history + per-step stats；README/示例索引/CI/release 二进制/扩展点文档。
-- 分布式设计 v1 → challenge（三个决策问题：总线选型/agent 方式/Gateway 模式）→ 用户定稿 → v2 修订（内置中转起步、进程级管理、proxy 为主，外加监控滞后/依赖顺序/历史聚合/鉴权/弱 sticky 等缺陷修正）。
+- D1：admin API 扩展（status/history/approvals/errors + 错误环形缓冲 + `--admin-token`）、内嵌 `/admin/ui`（dashboard.html）、serve 停机写 history、CLI `serve --resume`、`ServeOptions{admin_token,history,resume}`。
 
-## 下一步（可选实施起点，按 v2 路线）
-- **D1 单机 Dashboard**：admin API 扩展（`/admin/status|history|approvals|errors` + 错误环形缓冲 + `--admin-token`）+ 内嵌 `/admin/ui`；serve 停止写 history；单机 CLI `serve --resume`。
-- 之后：D2 agent → D3 plane → D4 Gateway → D5a 中转 → D5b NATS（可选）→ D6 全局 UI + 安全收尾。
+## 下一步（D2）
+- `sohara-agent` crate：进程级管理（spawn `sohara serve --admin`、kill/重启退避）、本地 1s 健康检查、心跳/指标上报、命令执行（start/stop/restart/pause/resume 透传）、plane 命令队列拉取 + seq 去重、agent↔plane token。
+- 依赖：D1 的 admin token、`serve --resume`（重启契约）。
+- 依据：`docs/design/distributed-plane-and-dashboard.md` §8 D2。
 
 ## 参考
-- 分布式设计：`docs/design/distributed-plane-and-dashboard.md`（v2）
+- 分布式设计：`docs/design/distributed-plane-and-dashboard.md`（v2，D1 已标 ✅）
 - 扩展点：`docs/design/extension-points.md`
-- 路线图：`docs/design/redesign-and-roadmap.md` §3
 - 质量门禁：`scripts/check-file-length.sh`、`scripts/check-fn-length.py`
