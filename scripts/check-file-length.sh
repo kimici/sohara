@@ -15,7 +15,7 @@ while IFS= read -r -d '' file; do
         echo "FAIL: $file ($lines lines, max $MAX_LINES)"
         EXIT_CODE=1
     fi
-done < <(find "$DIR" -name '*.rs' -not -path '*/target/*' -print0)
+done < <(find "$DIR" -name '*.rs' -not -path '*/target/*' -not -path '*/.cargo-home/*' -print0)
 
 if (( EXIT_CODE == 0 )); then
     echo "OK: All Rust files are within $MAX_LINES lines."

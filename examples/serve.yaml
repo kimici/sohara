@@ -1,0 +1,15 @@
+name: serve
+version: "1"
+description: serve 示例：http / cron / queue 触发器 → log sink
+triggers:
+  - { id: webhook, type: http, method: POST, path: /webhook, port: 9527 }
+  - { id: tick, type: cron, expression: "*/5 * * * * *" }
+  - { id: bus, type: queue, topic: hello }
+steps:
+  - { id: tag, kind: transform, type: add_field, config: { field: via, value: trigger } }
+  - { id: out, kind: sink, type: log, config: { level: info } }
+edges:
+  - [webhook, tag]
+  - [tick, tag]
+  - [bus, tag]
+  - [tag, out]

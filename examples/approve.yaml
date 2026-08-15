@@ -1,0 +1,10 @@
+name: approve-demo
+version: "1"
+description: 人工在环示例：run → 记录停在 approve → approve 命令放行
+checkpoint: { store: output/approve-store.json }
+steps:
+  - { id: in, kind: source, type: inline, config: { records: [{order: A, amount: "2000"}] } }
+  - { id: gate, kind: control, type: approve, config: { title: "大额订单审批", owners: [alice] } }
+  - { id: count, kind: transform, type: state, config: { expr: { approved: "state.approved + 1" } }, state: { approved: 0 } }
+  - { id: out, kind: sink, type: file, config: { path: output/approved.jsonl, format: jsonl } }
+edges: [[in, gate], [gate, count], [count, out]]

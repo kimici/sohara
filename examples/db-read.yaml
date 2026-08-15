@@ -1,0 +1,14 @@
+name: db-read
+version: "1"
+description: SQLite 连接器示例：从 SQLite 查询记录输出到 JSONL
+steps:
+  - id: in
+    kind: source
+    type: db
+    config:
+      path: output/demo.db
+      query: "SELECT name, score FROM scores ORDER BY score DESC"
+  - id: out
+    kind: sink
+    type: file
+    config: { path: output/from-db.jsonl, format: jsonl }

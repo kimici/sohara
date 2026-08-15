@@ -1,79 +1,60 @@
-//! Generic record type for data interchange
+//! Generic JSON record type for data interchange
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-use base64::Engine;
-
-/// A generic record that can hold any structured data
+/// A record that flows through pipelines.
+///
+/// S0 data model: the payload is a plain JSON value (single path); a typed
+/// `Schema` is a later (S5) optional enhancement that does not replace it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     /// Unique identifier for this record
     pub id: String,
     /// Timestamp when the record was created
     pub timestamp: DateTime<Utc>,
-    /// The actual data payload
-    pub data: RecordData,
+    /// The actual JSON payload
+    pub payload: Value,
     /// Optional metadata
     pub metadata: HashMap<String, String>,
 }
 
-/// The data payload of a record
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum RecordData {
-    /// JSON object
-    Object(serde_json::Map<String, serde_json::Value>),
-    /// JSON array
-    Array(Vec<serde_json::Value>),
-    /// Simple string value
-    Text(String),
-    /// Binary data (base64 encoded)
-    Binary(Vec<u8>),
-}
-
 impl Record {
-    /// Create a new record with the given data
-    pub fn new(data: impl Into<RecordData>) -> Self {
+    /// Create a new record with the given JSON payload
+    pub fn new(data: impl Into<Value>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp: Utc::now(),
-            data: data.into(),
+            payload: data.into(),
             metadata: HashMap::new(),
         }
     }
 
-    /// Create a record from a JSON value
+    /// Create a record from a JSON value (alias of [`Record::new`])
     #[must_use]
-    pub fn from_json(value: serde_json::Value) -> Self {
-        match value {
-            serde_json::Value::Object(map) => Self::new(RecordData::Object(map)),
-            serde_json::Value::Array(arr) => Self::new(RecordData::Array(arr)),
-            serde_json::Value::String(s) => Self::new(RecordData::Text(s)),
-            other => Self::new(RecordData::Text(other.to_string())),
-        }
+    pub fn from_json(value: Value) -> Self {
+        Self::new(value)
     }
 
-    /// Get a field value by name (for object records)
+    /// Get a field by dot path (e.g. `"user.name"`), returns `None` if any
+    /// segment is missing or not an object.
     #[must_use]
-    pub fn get(&self, field: &str) -> Option<&serde_json::Value> {
-        match &self.data {
-            RecordData::Object(map) => map.get(field),
-            _ => None,
-        }
+    pub fn get(&self, path: &str) -> Option<&Value> {
+        get_path(&self.payload, path)
     }
 
-    /// Set a field value (for object records)
-    pub fn set(&mut self, field: impl Into<String>, value: serde_json::Value) {
-        if let RecordData::Object(map) = &mut self.data {
-            map.insert(field.into(), value);
-        } else {
-            // Convert to object if not already
-            let mut map = serde_json::Map::new();
-            map.insert(field.into(), value);
-            self.data = RecordData::Object(map);
-        }
+    /// Set a field by dot path, creating intermediate objects as needed.
+    /// A non-object payload is replaced by a new object before insertion.
+    pub fn set(&mut self, path: impl Into<String>, value: Value) {
+        set_path(&mut self.payload, &path.into(), value);
+    }
+
+    /// Whether the dot path exists (and is not `null`? no - only existence).
+    #[must_use]
+    pub fn has(&self, path: &str) -> bool {
+        self.get(path).is_some()
     }
 
     /// Add metadata to the record
@@ -83,24 +64,51 @@ impl Record {
         self
     }
 
-    /// Convert to JSON value
+    /// Convert to a JSON value (clone of the payload)
     #[must_use]
-    pub fn to_json(&self) -> serde_json::Value {
-        match &self.data {
-            RecordData::Object(map) => serde_json::Value::Object(map.clone()),
-            RecordData::Array(arr) => serde_json::Value::Array(arr.clone()),
-            RecordData::Text(s) => serde_json::Value::String(s.clone()),
-            RecordData::Binary(bytes) => {
-                serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(bytes))
-            }
-        }
+    pub fn to_json(&self) -> Value {
+        self.payload.clone()
+    }
+}
+
+/// Navigate a dot path on a JSON value.
+fn get_path<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
+    let mut current = root;
+    for part in path.split('.') {
+        current = current.as_object()?.get(part)?;
+    }
+    Some(current)
+}
+
+/// Insert a value at a dot path, creating intermediate objects as needed.
+fn set_path(root: &mut Value, path: &str, value: Value) {
+    let mut parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        *root = value;
+        return;
+    }
+    if !root.is_object() {
+        *root = Value::Object(Map::new());
+    }
+    let last = parts.pop().unwrap_or_default();
+    let mut current = root;
+    for part in parts {
+        let Some(obj) = current.as_object_mut() else {
+            return;
+        };
+        current = obj
+            .entry(part.to_owned())
+            .or_insert_with(|| Value::Object(Map::new()));
+    }
+    if let Some(obj) = current.as_object_mut() {
+        obj.insert(last.to_owned(), value);
     }
 }
 
 /// Builder for creating records
 pub struct RecordBuilder {
     id: Option<String>,
-    data: Option<RecordData>,
+    data: Option<Value>,
     metadata: HashMap<String, String>,
 }
 
@@ -121,7 +129,7 @@ impl RecordBuilder {
     }
 
     #[must_use]
-    pub fn data(mut self, data: impl Into<RecordData>) -> Self {
+    pub fn data(mut self, data: impl Into<Value>) -> Self {
         self.data = Some(data.into());
         self
     }
@@ -137,9 +145,7 @@ impl RecordBuilder {
         Record {
             id: self.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             timestamp: Utc::now(),
-            data: self
-                .data
-                .unwrap_or_else(|| RecordData::Object(serde_json::Map::new())),
+            payload: self.data.unwrap_or_else(|| Value::Object(Map::new())),
             metadata: self.metadata,
         }
     }
@@ -148,41 +154,5 @@ impl RecordBuilder {
 impl Default for RecordBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// Conversions
-impl From<serde_json::Value> for RecordData {
-    fn from(value: serde_json::Value) -> Self {
-        match value {
-            serde_json::Value::Object(map) => Self::Object(map),
-            serde_json::Value::Array(arr) => Self::Array(arr),
-            serde_json::Value::String(s) => Self::Text(s),
-            other => Self::Text(other.to_string()),
-        }
-    }
-}
-
-impl From<String> for RecordData {
-    fn from(s: String) -> Self {
-        Self::Text(s)
-    }
-}
-
-impl From<&str> for RecordData {
-    fn from(s: &str) -> Self {
-        Self::Text(s.to_string())
-    }
-}
-
-impl From<serde_json::Map<String, serde_json::Value>> for RecordData {
-    fn from(map: serde_json::Map<String, serde_json::Value>) -> Self {
-        Self::Object(map)
-    }
-}
-
-impl From<Vec<serde_json::Value>> for RecordData {
-    fn from(arr: Vec<serde_json::Value>) -> Self {
-        Self::Array(arr)
     }
 }

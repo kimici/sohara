@@ -1,0 +1,8 @@
+name: imports
+version: "1"
+description: 模板复用示例：从 parts/common.yaml 导入步骤模板
+imports: [parts/common.yaml]
+steps:
+  - { id: in, use: csv_in }
+  - { id: adult, kind: transform, type: filter, config: { where: "age >= 18" } }
+  - { id: out, use: jsonl_out }

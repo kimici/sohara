@@ -1,6 +1,14 @@
 [workspace]
 members = [
     "sohara-core",
+    "sohara-config",
+    "sohara-builtins",
+    "sohara-runtime",
+    "sohara-triggers",
+    "sohara-persistence",
+    "sohara-io",
+    "sohara-js",
+    "sohara-cli",
 ]
 resolver = "2"
 
@@ -49,3 +57,8 @@ tokio-stream = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 dashmap = "5"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1

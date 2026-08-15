@@ -1,0 +1,9 @@
+[package]
+name = "sohara-persistence"
+version = "0.1.0"
+edition = "2021"
+description = "Single-machine StateStore implementations: memory and JSON file"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+sohara-core = { path = "../sohara-core" }

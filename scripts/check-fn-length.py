@@ -9,6 +9,16 @@ MAX_FN_LINES = 30
 FN_RE = re.compile(
     r"^\s*(pub\s+)?(async\s+)?fn\s+\w+",
 )
+# Strip string literals, char literals, and line comments so braces inside
+# them do not skew brace-depth tracking.
+LITERAL_RE = re.compile(
+    r'"(?:\\.|[^"\\])*"|\'\\?.\'|//[^\n]*',
+)
+
+
+def code_only(line: str) -> str:
+    return LITERAL_RE.sub("", line)
+
 
 def count_fn_lines(lines: list[str], start: int) -> tuple[int, str]:
     """Count non-blank, non-comment lines of a function starting at `start`."""
@@ -16,14 +26,13 @@ def count_fn_lines(lines: list[str], start: int) -> tuple[int, str]:
     count = 0
     name = lines[start].strip()
     for line in lines[start:]:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("//"):
-            # Still count the line for brace tracking but skip in body count
-            depth += stripped.count("{") - stripped.count("}")
+        stripped = code_only(line).strip()
+        depth += stripped.count("{") - stripped.count("}")
+        if not stripped:
+            # Blank / comment-only lines still close the function if needed.
             if depth <= 0 and count > 0:
                 break
             continue
-        depth += stripped.count("{") - stripped.count("}")
         count += 1
         if depth <= 0 and count > 1:
             break
@@ -49,7 +58,7 @@ def main():
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".")
     all_violations = []
     for rs in root.rglob("*.rs"):
-        if "target" in rs.parts:
+        if "target" in rs.parts or ".cargo-home" in rs.parts:
             continue
         all_violations.extend(check_file(rs))
 

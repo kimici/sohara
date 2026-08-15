@@ -1,0 +1,23 @@
+[package]
+name = "sohara-js"
+version = "0.1.0"
+edition = "2021"
+description = "QuickJS scripting bridge and script steps (S5)"
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+quick-js = { version = "0.4", features = ["patched"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+sohara-core = { path = "../sohara-core" }
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
+tokio = { version = "1", features = ["full"] }
+sohara-builtins = { path = "../sohara-builtins" }
+sohara-config = { path = "../sohara-config" }
+sohara-runtime = { path = "../sohara-runtime" }

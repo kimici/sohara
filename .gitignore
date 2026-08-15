@@ -1,7 +1,10 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
+.cargo-home/
+
+# Example outputs
+/examples/output/
 
 # IDE
 .idea/
@@ -12,3 +15,5 @@ Cargo.lock
 # OS
 .DS_Store
 Thumbs.db
+
+.sohara

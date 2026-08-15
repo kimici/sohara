@@ -1,0 +1,18 @@
+[package]
+name = "sohara-builtins"
+version = "0.1.0"
+edition = "2021"
+description = "Built-in flow steps: file, inline, filter, map, add_field, assert, log, noop, collect"
+
+[dependencies]
+async-trait = "0.1"
+csv = "1"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+sohara-core = { path = "../sohara-core" }
+
+[dev-dependencies]
+sohara-config = { path = "../sohara-config" }

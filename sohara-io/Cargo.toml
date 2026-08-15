@@ -1,0 +1,15 @@
+[package]
+name = "sohara-io"
+version = "0.1.0"
+edition = "2021"
+description = "Connectors: HTTP client and SQLite database steps (S5)"
+
+[dependencies]
+async-trait = "0.1"
+futures = "0.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+sohara-core = { path = "../sohara-core" }

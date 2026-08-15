@@ -42,3 +42,31 @@ impl Source for VecSource {
         &self.name
     }
 }
+
+#[async_trait]
+impl Source for Box<dyn Source> {
+    async fn stream(&self) -> Result<BoxStream<'static, Result<Record>>> {
+        (**self).stream().await
+    }
+
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+}
+
+/// A source with a lifecycle, used by `serve` mode.
+///
+/// `start` runs before the graph executes; `stop` is called on graceful
+/// shutdown and must cause `stream()` to end.
+#[async_trait]
+pub trait Trigger: Source {
+    /// Start the trigger (e.g. bind the HTTP listener).
+    async fn start(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Stop the trigger so its stream ends.
+    async fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+}

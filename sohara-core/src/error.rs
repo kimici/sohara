@@ -26,6 +26,12 @@ pub enum Error {
     #[error("Transform error: {0}")]
     Transform(String),
 
+    #[error("Assertion failed: {0}")]
+    Assertion(String),
+
+    #[error("Expression error: {0}")]
+    Expression(String),
+
     #[error("Runtime error: {0}")]
     Runtime(String),
 

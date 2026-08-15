@@ -1,0 +1,9 @@
+templates:
+  csv_in:
+    kind: source
+    type: file
+    config: { path: data/input.csv, format: csv }
+  jsonl_out:
+    kind: sink
+    type: file
+    config: { path: output/imported.jsonl, format: jsonl }

@@ -1,0 +1,59 @@
+name: graph
+version: "1"
+description: 图与控制流示例：switch → parallel+join / cheap → foreach → batch
+steps:
+  - id: in
+    kind: source
+    type: inline
+    config:
+      records:
+        - { order: A, amount: "1500", items: [x, y] }
+        - { order: B, amount: "200", items: [z] }
+  - id: route
+    kind: control
+    type: switch
+    config:
+      cases: [{ when: "amount > 1000", to: fan }]
+      default: cheap
+  - id: cheap
+    kind: transform
+    type: add_field
+    config: { field: level, value: normal }
+  - id: fan
+    kind: control
+    type: parallel
+    config: { branches: [stamp, count] }
+  - id: stamp
+    kind: transform
+    type: add_field
+    config: { field: stamped, value: true }
+  - id: count
+    kind: transform
+    type: add_field
+    config: { field: counted, value: 2 }
+  - id: gather
+    kind: control
+    type: join
+    config: { mode: all }
+  - id: each
+    kind: control
+    type: foreach
+    config: { over: "$.items", as: item }
+  - id: buf
+    kind: transform
+    type: batch
+    config: { size: 2 }
+  - id: out
+    kind: sink
+    type: file
+    config: { path: output/graph.jsonl, format: jsonl }
+edges:
+  - [in, route]
+  - [cheap, each]
+  - [fan, stamp]
+  - [fan, count]
+  - [stamp, gather]
+  - [count, gather]
+  - [gather, each]
+  - [each, buf]
+  - [buf, out]

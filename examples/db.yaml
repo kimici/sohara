@@ -1,0 +1,12 @@
+name: db
+version: "1"
+description: SQLite 连接器示例：inline 记录写入 SQLite 表
+steps:
+  - id: in
+    kind: source
+    type: inline
+    config: { records: [{name: Alice, score: 90}, {name: Bob, score: 85}] }
+  - id: store
+    kind: sink
+    type: db
+    config: { path: output/demo.db, table: scores }

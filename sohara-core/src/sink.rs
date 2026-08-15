@@ -73,3 +73,18 @@ impl Sink for LogSink {
         &self.name
     }
 }
+
+#[async_trait]
+impl Sink for Box<dyn Sink> {
+    async fn send(&self, record: Record) -> Result<()> {
+        (**self).send(record).await
+    }
+
+    async fn flush(&self) -> Result<()> {
+        (**self).flush().await
+    }
+
+    fn name(&self) -> &str {
+        (**self).name()
+    }
+}

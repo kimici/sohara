@@ -1,0 +1,20 @@
+name: basic
+version: "1"
+description: 最小端到端示例：csv → filter → map → jsonl
+steps:
+  - id: in
+    kind: source
+    type: file
+    config: { path: data/input.csv, format: csv }
+  - id: adult
+    kind: transform
+    type: filter
+    config: { where: "age >= 18" }
+  - id: enrich
+    kind: transform
+    type: map
+    config: { expr: { processed_at: "now()" } }
+  - id: out
+    kind: sink
+    type: file
+    config: { path: output/result.jsonl, format: jsonl }
