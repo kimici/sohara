@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-facing-doc": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "utility/skills/agent-facing-doc/SKILL.md",
+      "computedHash": "e6d7a72de443791c05dc609d9eeb3dca3316eae0f35a9a0e97267d783a8dceef"
+    },
+    "align": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/align/SKILL.md",
+      "computedHash": "c042e138c61ee1799fa33f4e06a540c582a621016ac80ff297e83e79c2ebf426"
+    },
+    "challenge": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/challenge/SKILL.md",
+      "computedHash": "7571cde2342116a6c35e508f4df9292c81133118048dab27a8cac81213a5a50e"
+    },
+    "deep-research": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/deep-research/SKILL.md",
+      "computedHash": "672df627474f1130217f7601cdf557d48562258cf9b4c3e29f19597b70adefba"
+    },
+    "distillation": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/distillation/SKILL.md",
+      "computedHash": "2c4ec56530cdafa5313fd4aa36ed2461a932ce2a3faffc64db8250caf75277cd"
+    },
+    "increment": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/increment/SKILL.md",
+      "computedHash": "b78c9fbafb4889ea05b6c25a9ac9486595f92fc7b751c9473b214fea13da9f83"
+    },
+    "probing": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/probing/SKILL.md",
+      "computedHash": "37ee7f289ccaade98838fa11ba940cf75dcd468286e1d78def1e741434d9ba1d"
+    },
+    "rationale": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "utility/skills/rationale/SKILL.md",
+      "computedHash": "93c6fb1d2ee0f5b4b7f4621bf305002e1ed1809766aa13a527211c1f399ee69d"
+    },
+    "restraint": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/restraint/SKILL.md",
+      "computedHash": "65a77767bae32fce7695662e19703f9a5f6d63b6f17ae041abd30e4ed6789b81"
+    },
+    "vnv": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/vnv/SKILL.md",
+      "computedHash": "b4107f4078ba214aa522e4435e7862ff939a9b7a1032dde1c96b3e5a5a4b8d38"
+    },
+    "worklog": {
+      "source": "kimmywork/skills",
+      "sourceType": "github",
+      "skillPath": "drafting/skills/worklog/SKILL.md",
+      "computedHash": "b4ee9916e5d2777ee4276bfd92cb6d7206fc814856ca9138d9a14fb51c068b87"
+    }
+  }
+}
