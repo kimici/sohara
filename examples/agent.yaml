@@ -1,0 +1,28 @@
+# 节点代理配置示例：监督本机一个 sohara serve 实例
+#
+# 运行（仓库根目录）：
+#   cargo run -p sohara-agent -- examples/agent.yaml
+#
+# agent 会拉起 `sohara serve examples/serve.yaml --admin 127.0.0.1:9531`，
+# 每 2s 向 plane 上报心跳并拉取命令；Ctrl+C/SIGTERM 时优雅停止实例。
+
+node: { id: n1 }
+
+plane:
+  url: "http://127.0.0.1:9600"   # 控制面（D3 sohara-plane）；暂不可用时 agent 保持运行
+  # token: plane-token
+
+heartbeat_ms: 2000
+
+instances:
+  - id: serve-1
+    flow: examples/serve.yaml
+    # bin 缺省为 PATH 上的 `sohara`；本地开发用 target/debug 构建：
+    bin: target/debug/sohara
+    admin: 127.0.0.1:9531        # 实例管理端口（省略则自动分配空闲端口）
+    resume: true                 # 重启时复用存储的 run_id
+    policy:
+      restart: true              # 崩溃/健康失败自动重启
+      max_restarts: 5
+      backoff_ms: 2000           # 指数退避起点，封顶 60s
+      health_failures: 3         # 连续健康检查失败次数（本地 1s 探测）

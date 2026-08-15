@@ -114,6 +114,7 @@ Every example is runnable from the repository root; see [`examples/README.md`](e
 | `sohara-io` | Connectors: minimal HTTP/1.1 client, SQLite (bundled rusqlite) |
 | `sohara-js` | QuickJS bridge + `script` source/transform/sink |
 | `sohara-cli` | `sohara` binary: run / serve / approve / history / init |
+| `sohara-agent` | Node agent (D2): supervises local `sohara serve` instances, heartbeat + command transport |
 
 ## Status
 

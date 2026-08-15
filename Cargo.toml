@@ -9,6 +9,7 @@ members = [
     "sohara-io",
     "sohara-js",
     "sohara-cli",
+    "sohara-agent",
 ]
 resolver = "2"
 

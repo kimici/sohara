@@ -171,7 +171,7 @@ instances:
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | D1 ✅ | 单机 Dashboard：admin API 扩展（status/history/approvals/errors/错误环形缓冲/`--admin-token`）+ 内嵌 `/admin/ui`；serve 停止写 history；CLI `serve --resume` | 已实现：`sohara serve --admin` 打开 UI；status/errors/approvals/history 端点可用；无 token 401；暂停期间事件不处理；停机写 history |
-| D2 | `sohara-agent`：进程管理（spawn/kill/重启退避）、本地 1s 健康检查、心跳上报、命令执行、token；单机 `serve --resume` | 一台机器跑 agent，plane stub 可见心跳；杀实例进程后按策略重启（resume 语义） |
+| D2 ✅ | `sohara-agent`：进程管理（spawn/kill/重启退避）、本地 1s 健康检查、心跳上报、命令执行、token；单机 `serve --resume` | 已实现：`sohara-agent` crate（实例监督状态机/重启策略/HttpTransport 心跳+命令队列+seq 去重）；e2e 用真实 `sohara` 二进制验证拉起/健康/停机；plane stub 测试验证心跳与 pause 命令执行 |
 | D3 | `sohara-plane` 基础：Registry、Manager API、期望状态下发、desired/actual 对账；路由策略 round-robin/hash/tags | Manager API 声明实例 → agent 拉起/停止真实 sohara 进程 |
 | D4 | Gateway + 调度：路由表、proxy 默认模式、健康摘除、请求级重试 | 两个实例按策略分布流量；停一个实例流量自动切走 |
 | D5a | PlaneRelayBus：跨机 queue 发布/订阅（agent 转发、有界积压+丢弃告警） | A 机发布 → B 机 queue 流程消费落盘；B 机离线时积压/丢弃按预期 |

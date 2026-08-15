@@ -13,6 +13,7 @@ flow file, and outputs land in `examples/output/`).
 | `imports.yaml` | S5 | `sohara run examples/imports.yaml` | template fragments from `parts/common.yaml` via `imports`/`use` |
 | `db.yaml` | S5 | `sohara run examples/db.yaml` | inline records → SQLite sink |
 | `db-read.yaml` | S5 | `sohara run examples/db-read.yaml` | SQLite source → jsonl (reads the table written by `db.yaml`) |
+| `agent.yaml` | D2 | `sohara-agent examples/agent.yaml` | node agent supervising `serve.yaml` as a managed instance |
 
 ## Serve-mode admin API (S6)
 
