@@ -176,7 +176,7 @@ instances:
 | D4 ✅ | Gateway + 调度：路由表（`/api/routes`，path→flow_id）、proxy 默认模式（bus 显式声明，暂返 501 待 D5a）、round_robin/hash 策略（tags/least-loaded 延后）、健康摘除（仅 running 且带 trigger 地址可路由）、请求级重试（2 候选）、全挂 503、Gateway 免 token（外部统一入口） | 已实现：两个真实实例按 round-robin 均分流量；停一个实例后流量全部切到存活实例 |
 | D5a ✅ | PlaneRelayBus：实例 `--relay <plane>` 桥接（sink.queue 发布 → plane 邮箱；pull 循环注入本地 InProcessBus → queue 触发器原样消费）、plane `/relay/publish|pull`（每主题有界 1000 条，超限丢最旧，游标按订阅者独立）、Gateway `mode: bus` 发布即返回 202 | 已实现：实例 A（http→queue sink）跨机投递到实例 B（queue trigger→file，优雅停机 flush 落盘）；Gateway bus → B 同样到达 |
 | D5b | （可选，后期）NATS/JetStream：`NatsBus` + `nats` 触发器；least-loaded 策略启用 | 跨机持久化投递；重启不丢消息 |
-| D6 | 全局 Dashboard + 安全收尾（mTLS 可选）+ 文档 + Gateway 前置 LB 评估 | Manager UI 完成 §7 页面；三向 token 全链路生效 |
+| D6 ✅ | 全局 Dashboard（`/ui`：节点/实例矩阵、生命周期按钮、声明表单、路由管理、事件历史）+ 实例详情直查代理（`/api/instances/:id/status` 透传 admin token）+ 集群事件历史（声明/期望变更/状态迁移，200 条环）+ 安全收尾（plane token 覆盖 /api、/agent、/relay 与 /ui；实例 admin token 直查透传；Gateway 前置 LB 与 mTLS 评估：单点已接受，HA 延后——见 §9） | 已实现：UI 401/200（token）、状态代理、事件流、三向 token e2e |
 
 ## 9. 失败模型与安全
 
@@ -184,7 +184,7 @@ instances:
 - **plane 宕机**：agent 策略 `keep-running`（保持现状运行），命令队列重连补拉；期间 Gateway 不可用（单点，明确接受，HA 延后；D6 评估前置 LB）。
 - **中转积压**：plane 每订阅实例有界队列，超限丢弃 + 告警（对齐单机有界通道语义）；持久化/至少一次由 D5b NATS 承接。
 - **消息幂等**：run 内由 delivered 键保证；跨重启依赖业务幂等键（§5 契约）；D5b 的 JetStream 至少一次 + 消重同契约。
-- **安全**：plane/agent/实例三向 token（D1/D2 落地）；Dashboard 管理操作需权限；单机 admin UI 默认仅 `--admin` 显式开启，建议绑定 loopback/内网。
+- **安全（D6 收尾）**：plane token 守卫 `/api/*`、`/agent/*`、`/relay/*` 与 `/ui`；实例 admin token 由 plane 状态代理透传；relay token 独立。mTLS 与 Gateway 前置 LB 为可选增强（控制面单点已接受，HA 延后）。
 
 ## 10. 与现有代码的接缝（零破坏）
 

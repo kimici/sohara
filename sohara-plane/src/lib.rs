@@ -1,6 +1,7 @@
 //! Sohara control plane: registry + manager API + agent API (D3)
 
 mod agent_api;
+mod events;
 mod gateway;
 mod manager;
 mod reconcile;

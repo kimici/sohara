@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sohara Manager</title>
+<style>
+  :root { --bg:#0f1420; --panel:#171d2c; --line:#2a3348; --text:#dde4f0; --dim:#8a94ad; --ok:#3ecf8e; --bad:#f0616d; --accent:#4d8df7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; }
+  header h1 { font-size:18px; margin:0; }
+  main { display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:14px; padding:14px 20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .panel h2 { font-size:14px; margin:0 0 10px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:500; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:5px; padding:4px 10px; cursor:pointer; font-size:12px; margin:1px; }
+  button.danger { background:#7a2e2e; }
+  input, textarea, select { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:5px 8px; font-size:12px; width:100%; margin:3px 0; font-family:inherit; }
+  textarea { font-family:ui-monospace, Menlo, monospace; min-height:90px; }
+  .state-running { color:var(--ok); }
+  .state-failed { color:var(--bad); }
+  .dim { color:var(--dim); }
+  .mono { font-family:ui-monospace, Menlo, monospace; font-size:11px; }
+  pre { margin:0; white-space:pre-wrap; font-size:11px; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px; max-width:640px; width:90%; }
+  dialog::backdrop { background:rgba(0,0,0,.55); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sohara Manager</h1>
+  <span class="dim" id="plane-state"></span>
+</header>
+<main>
+  <section class="panel">
+    <h2>Nodes</h2>
+    <table id="nodes"><thead><tr><th>id</th><th>last seen</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="panel" style="grid-column: span 2;">
+    <h2>Instances</h2>
+    <table id="instances">
+      <thead><tr><th>id</th><th>node</th><th>flow</th><th>desired</th><th>actual</th><th>healthy</th><th>restarts</th><th>actions</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Declare instance</h2>
+    <input id="d-id" placeholder="instance id">
+    <input id="d-node" placeholder="node id">
+    <input id="d-flow-id" placeholder="flow_id (routing group)">
+    <select id="d-desired"><option>running</option><option>paused</option><option>stopped</option></select>
+    <textarea id="d-spec" placeholder='spec JSON: {"flow":"flows/x.yaml","bin":"sohara","admin":"127.0.0.1:9528","trigger":"127.0.0.1:9527","relay":"http://plane:9600","health_enabled":true}'></textarea>
+    <button onclick="declare()">Declare</button>
+  </section>
+
+  <section class="panel">
+    <h2>Routes</h2>
+    <table id="routes"><thead><tr><th>id</th><th>path</th><th>flow_id</th><th>mode</th><th>strategy</th><th></th></tr></thead><tbody></tbody></table>
+    <input id="r-id" placeholder="route id"><input id="r-path" placeholder="path (/webhook/orders)">
+    <input id="r-flow" placeholder="flow_id"><select id="r-mode"><option>proxy</option><option>bus</option></select>
+    <select id="r-strategy"><option>round_robin</option><option>hash</option></select>
+    <input id="r-topic" placeholder="topic (bus mode)">
+    <button onclick="declareRoute()">Add route</button>
+  </section>
+
+  <section class="panel" style="grid-column: span 2;">
+    <h2>Event history</h2>
+    <ul id="events" style="list-style:none;padding:0;margin:0;font-size:12px;"></ul>
+  </section>
+</main>
+
+<dialog id="detail"><div id="detail-body"></div><button onclick="document.getElementById('detail').close()">Close</button></dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  return res.json();
+}
+
+async function refresh() {
+  try {
+    const nodes = await api('/api/nodes');
+    const nb = $('nodes').querySelector('tbody');
+    nb.replaceChildren(...nodes.map((n) => row([n.id, (n.last_seen || '').slice(11, 19)])));
+
+    const instances = await api('/api/instances');
+    const ib = $('instances').querySelector('tbody');
+    ib.replaceChildren(...instances.map((i) => {
+      const tr = document.createElement('tr');
+      const actual = i.actual || 'unknown';
+      tr.innerHTML = `<td>${i.id}</td><td>${i.node}</td><td>${i.flow_id || '-'}</td>` +
+        `<td>${i.desired}</td><td class="state-${actual}">${actual}</td>` +
+        `<td>${i.healthy ?? '-'}</td><td>${i.restarts ?? '-'}</td>`;
+      const td = document.createElement('td');
+      td.append(
+        btn('run', () => setDesired(i.id, 'running')),
+        btn('pause', () => setDesired(i.id, 'paused')),
+        btn('stop', () => setDesired(i.id, 'stopped')),
+        btn('detail', () => showDetail(i.id)),
+        btn('del', () => removeInstance(i.id), 'danger'),
+      );
+      tr.appendChild(td);
+      return tr;
+    }));
+    if (!instances.length) ib.replaceChildren(row(['no instances declared', '', '', '', '', '', '']));
+
+    const routes = await api('/api/routes');
+    const rb = $('routes').querySelector('tbody');
+    rb.replaceChildren(...routes.map((r) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.id}</td><td class="mono">${r.path}</td><td>${r.flow_id}</td>` +
+        `<td>${r.mode}</td><td>${r.strategy}</td>`;
+      const td = document.createElement('td');
+      td.append(btn('del', () => removeRoute(r.id), 'danger'));
+      tr.appendChild(td);
+      return tr;
+    }));
+
+    const events = await api('/api/events');
+    $('events').replaceChildren(...events.slice(0, 30).map((e) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="dim">[${e.time.slice(11, 19)}] ${e.kind}</span> ${e.message}`;
+      return li;
+    }));
+  } catch (e) {
+    $('plane-state').textContent = `error: ${e.message}`;
+  }
+}
+
+function btn(label, fn, cls = '') {
+  const b = document.createElement('button');
+  b.textContent = label;
+  if (cls) b.className = cls;
+  b.onclick = fn;
+  return b;
+}
+
+function row(cells) {
+  const tr = document.createElement('tr');
+  cells.forEach((c) => { const td = document.createElement('td'); td.innerHTML = c; tr.appendChild(td); });
+  return tr;
+}
+
+async function setDesired(id, desired) {
+  await api(`/api/instances/${id}/desired`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ desired }),
+  });
+  refresh();
+}
+
+async function removeInstance(id) {
+  await api(`/api/instances/${id}`, { method: 'DELETE' });
+  refresh();
+}
+
+async function removeRoute(id) {
+  await api(`/api/routes/${id}`, { method: 'DELETE' });
+  refresh();
+}
+
+async function declare() {
+  const spec = JSON.parse($('d-spec').value || '{}');
+  const body = {
+    id: $('d-id').value,
+    node: $('d-node').value,
+    flow_id: $('d-flow-id').value || null,
+    desired: $('d-desired').value,
+    spec: { id: $('d-id').value, ...spec },
+  };
+  await api('/api/instances', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  refresh();
+}
+
+async function declareRoute() {
+  const body = {
+    id: $('r-id').value, path: $('r-path').value, flow_id: $('r-flow').value,
+    mode: $('r-mode').value, strategy: $('r-strategy').value,
+    topic: $('r-topic').value || null,
+  };
+  await api('/api/routes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  refresh();
+}
+
+async function showDetail(id) {
+  const dialog = $('detail');
+  $('detail-body').innerHTML = '<span class="dim">loading…</span>';
+  dialog.showModal();
+  try {
+    const status = await api(`/api/instances/${id}/status`);
+    $('detail-body').innerHTML = `<h2>${id}</h2><pre>${JSON.stringify(status, null, 2)}</pre>`;
+  } catch (e) {
+    $('detail-body').innerHTML = `<span class="state-failed">${e.message}</span>`;
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

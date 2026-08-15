@@ -39,6 +39,28 @@ pub(crate) fn enqueue_reconcile(
     }
 }
 
+/// Human-readable state transitions in one heartbeat batch (D6 events).
+pub(crate) fn state_transitions(
+    inner: &Inner,
+    node: &str,
+    reports: &[InstanceReport],
+) -> Vec<String> {
+    reports
+        .iter()
+        .filter_map(|report| {
+            let previous = actual_of(inner, node, &report.id).map(|r| r.state);
+            (previous != Some(report.state)).then(|| {
+                format!(
+                    "instance '{}' state {} -> {}",
+                    report.id,
+                    previous.map_or("unknown", |s| s.as_str()),
+                    report.state.as_str()
+                )
+            })
+        })
+        .collect()
+}
+
 /// The actual report for an instance, if the node reported one.
 pub(crate) fn actual_of<'a>(
     inner: &'a Inner,

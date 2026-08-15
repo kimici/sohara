@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::Router;
 
+use crate::registry::{Inner, Registry};
 use crate::types::RouteMode;
 use crate::Plane;
 
@@ -112,4 +113,87 @@ async fn forward_once(
     let status = response.status();
     let bytes = response.bytes().await?.to_vec();
     Ok((status, bytes))
+}
+
+impl Registry {
+    /// Longest-prefix route match for a gateway request path.
+    pub async fn find_route(&self, path: &str) -> Option<crate::types::RouteDecl> {
+        let path = path.trim_start_matches('/');
+        let inner = self.inner.lock().await;
+        inner
+            .routes
+            .values()
+            .filter(|route| {
+                let prefix = route.path.trim_start_matches('/');
+                path == prefix || path.starts_with(&format!("{prefix}/"))
+            })
+            .max_by_key(|route| route.path.len())
+            .cloned()
+    }
+
+    /// Ordered trigger addresses for a route request (D4).
+    pub async fn select_targets(
+        &self,
+        route: &crate::types::RouteDecl,
+        hash_key: Option<&str>,
+    ) -> Vec<String> {
+        let mut inner = self.inner.lock().await;
+        let targets = running_targets(&inner, route);
+        if targets.is_empty() {
+            return Vec::new();
+        }
+        order_targets(&mut inner, route, hash_key, targets)
+    }
+}
+
+/// Eligible (id, trigger) pairs for a route: running instances with a
+/// known trigger address in the route's flow group.
+fn running_targets(inner: &Inner, route: &crate::types::RouteDecl) -> Vec<(String, String)> {
+    let mut targets = Vec::new();
+    for decl in inner
+        .instances
+        .values()
+        .filter(|decl| decl.flow_id.as_deref() == Some(route.flow_id.as_str()))
+    {
+        let Some(report) = crate::reconcile::actual_of(inner, &decl.node, &decl.id) else {
+            continue;
+        };
+        if report.state != sohara_agent::InstanceState::Running {
+            continue;
+        }
+        if let Some(trigger) = &report.trigger {
+            targets.push((decl.id.clone(), trigger.clone()));
+        }
+    }
+    targets
+}
+
+/// Order targets by strategy: hash sorts deterministically by the sticky
+/// key; round-robin rotates by a per-route counter.
+fn order_targets(
+    inner: &mut Inner,
+    route: &crate::types::RouteDecl,
+    hash_key: Option<&str>,
+    mut targets: Vec<(String, String)>,
+) -> Vec<String> {
+    match (route.strategy, hash_key) {
+        (crate::types::Strategy::Hash, Some(key)) => {
+            targets.sort_by_key(|(id, _)| hash_key_order(key, id));
+        }
+        _ => {
+            let counter = inner.round_robin.entry(route.id.clone()).or_insert(0);
+            let shift = (*counter as usize) % targets.len();
+            *counter += 1;
+            targets.rotate_left(shift);
+        }
+    }
+    targets.into_iter().map(|(_, trigger)| trigger).collect()
+}
+
+fn hash_key_order(key: &str, id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    id.hash(&mut hasher);
+    hasher.finish()
 }

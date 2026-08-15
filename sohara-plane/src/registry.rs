@@ -1,6 +1,6 @@
 //! Registry: desired state, actual state from heartbeats, command queues (D3)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -8,13 +8,12 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use sohara_agent::{
-    Command, CommandAck, DesiredInstance, Heartbeat, InstanceReport, InstanceState,
-};
+use sohara_agent::{Command, CommandAck, DesiredInstance, Heartbeat, InstanceReport};
 
-use crate::reconcile::{actual_of, declared_for, enqueue_reconcile};
+use crate::events::record_event_locked;
+use crate::reconcile::{actual_of, declared_for, enqueue_reconcile, state_transitions};
 use crate::store;
-use crate::types::{Desired, FlowDecl, InstanceDecl, InstanceView, NodeView, RouteDecl, Strategy};
+use crate::types::{Desired, FlowDecl, InstanceDecl, InstanceView, NodeView, RouteDecl};
 
 /// The persisted subset: flows + instance declarations (desired state).
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -38,6 +37,7 @@ pub(crate) struct Inner {
     pub(crate) routes: HashMap<String, RouteDecl>,
     pub(crate) round_robin: HashMap<String, u64>,
     pub(crate) relay: HashMap<String, crate::relay_api::RelayQueue>,
+    pub(crate) events: VecDeque<serde_json::Value>,
 }
 
 /// The plane's source of truth plus live agent state.
@@ -80,17 +80,18 @@ impl Registry {
     /// Declare (or replace) an instance; its spec id is made authoritative.
     pub async fn declare_instance(&self, mut decl: InstanceDecl) -> Result<()> {
         decl.spec.id = decl.id.clone();
-        self.inner
-            .lock()
-            .await
-            .instances
-            .insert(decl.id.clone(), decl);
+        let id = decl.id.clone();
+        self.inner.lock().await.instances.insert(id.clone(), decl);
+        self.record_event("declare", &format!("instance '{id}' declared"))
+            .await;
         self.persist().await
     }
 
     /// Remove an instance declaration.
     pub async fn remove_instance(&self, id: &str) -> Result<()> {
         self.inner.lock().await.instances.remove(id);
+        self.record_event("undeclare", &format!("instance '{id}' removed"))
+            .await;
         self.persist().await
     }
 
@@ -99,6 +100,11 @@ impl Registry {
         if let Some(decl) = self.inner.lock().await.instances.get_mut(id) {
             decl.desired = desired;
         }
+        self.record_event(
+            "desired",
+            &format!("instance '{id}' desired -> {}", desired.as_str()),
+        )
+        .await;
         self.persist().await
     }
 
@@ -153,10 +159,14 @@ impl Registry {
     pub async fn heartbeat(&self, heartbeat: &Heartbeat) -> (Vec<Command>, Vec<DesiredInstance>) {
         let mut inner = self.inner.lock().await;
         let node = heartbeat.node_id.clone();
+        let transitions = state_transitions(&inner, &node, &heartbeat.instances);
         inner
             .actual
             .insert(node.clone(), heartbeat.instances.clone());
         inner.last_seen.insert(node.clone(), heartbeat.time.clone());
+        for transition in transitions {
+            record_event_locked(&mut inner, "state", &transition);
+        }
         let declared = declared_for(&inner, &node);
         enqueue_reconcile(&mut inner, &node, &declared, &heartbeat.instances);
         let commands = inner.pending.get(&node).cloned().unwrap_or_default();
@@ -199,35 +209,6 @@ impl Registry {
         self.inner.lock().await.routes.values().cloned().collect()
     }
 
-    /// Longest-prefix route match for a gateway request path.
-    pub async fn find_route(&self, path: &str) -> Option<RouteDecl> {
-        let path = path.trim_start_matches('/');
-        let inner = self.inner.lock().await;
-        inner
-            .routes
-            .values()
-            .filter(|route| {
-                let prefix = route.path.trim_start_matches('/');
-                path == prefix || path.starts_with(&format!("{prefix}/"))
-            })
-            .max_by_key(|route| route.path.len())
-            .cloned()
-    }
-
-    /// Ordered trigger addresses for a route request (D4).
-    ///
-    /// Only instances with actual state `running` and a known trigger
-    /// address are eligible. `hash` strategy orders deterministically by the
-    /// hash key; `round_robin` rotates by a per-route counter.
-    pub async fn select_targets(&self, route: &RouteDecl, hash_key: Option<&str>) -> Vec<String> {
-        let mut inner = self.inner.lock().await;
-        let targets = running_targets(&inner, route);
-        if targets.is_empty() {
-            return Vec::new();
-        }
-        order_targets(&mut inner, route, hash_key, targets)
-    }
-
     async fn persist(&self) -> Result<()> {
         let Some(path) = &self.path else {
             return Ok(());
@@ -240,56 +221,4 @@ impl Registry {
         };
         store::save(path, &persisted)
     }
-}
-
-fn hash_key_order(key: &str, id: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    key.hash(&mut hasher);
-    id.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Eligible (id, trigger) pairs for a route: running instances with a
-/// known trigger address in the route's flow group.
-fn running_targets(inner: &Inner, route: &RouteDecl) -> Vec<(String, String)> {
-    let mut targets = Vec::new();
-    for decl in inner
-        .instances
-        .values()
-        .filter(|decl| decl.flow_id.as_deref() == Some(route.flow_id.as_str()))
-    {
-        let Some(report) = actual_of(inner, &decl.node, &decl.id) else {
-            continue;
-        };
-        if report.state != InstanceState::Running {
-            continue;
-        }
-        if let Some(trigger) = &report.trigger {
-            targets.push((decl.id.clone(), trigger.clone()));
-        }
-    }
-    targets
-}
-
-/// Order targets by strategy: hash sorts deterministically by the sticky
-/// key; round-robin rotates by a per-route counter.
-fn order_targets(
-    inner: &mut Inner,
-    route: &RouteDecl,
-    hash_key: Option<&str>,
-    mut targets: Vec<(String, String)>,
-) -> Vec<String> {
-    match (route.strategy, hash_key) {
-        (Strategy::Hash, Some(key)) => {
-            targets.sort_by_key(|(id, _)| hash_key_order(key, id));
-        }
-        _ => {
-            let counter = inner.round_robin.entry(route.id.clone()).or_insert(0);
-            let shift = (*counter as usize) % targets.len();
-            *counter += 1;
-            targets.rotate_left(shift);
-        }
-    }
-    targets.into_iter().map(|(_, trigger)| trigger).collect()
 }

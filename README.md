@@ -115,7 +115,7 @@ Every example is runnable from the repository root; see [`examples/README.md`](e
 | `sohara-js` | QuickJS bridge + `script` source/transform/sink |
 | `sohara-cli` | `sohara` binary: run / serve / approve / history / init |
 | `sohara-agent` | Node agent (D2): supervises local `sohara serve` instances, heartbeat + command transport |
-| `sohara-plane` | Control plane (D3–D5a): registry + reconciliation, manager API, gateway (round-robin/hash routing, health eviction), and the cross-instance relay mailbox |
+| `sohara-plane` | Control plane (D3–D6): registry + reconciliation, manager API + `/ui` manager dashboard (instance matrix, lifecycle actions, routes, event history, per-instance status proxy), gateway routing, and the cross-instance relay mailbox |
 
 ## Status
 

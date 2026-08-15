@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -28,7 +29,48 @@ pub fn manager_router(plane: Arc<Plane>) -> Router {
         .route("/api/flows", post(put_flow))
         .route("/api/routes", get(routes).post(declare_route))
         .route("/api/routes/:id", delete(remove_route))
+        .route("/api/events", get(events))
+        .route("/api/instances/:id/status", get(instance_status))
+        .route("/ui", get(ui))
         .with_state(plane)
+}
+
+async fn events(State(plane): State<Arc<Plane>>) -> Json<Value> {
+    Json(json!(plane.registry.list_events().await))
+}
+
+/// Proxy one instance's `/admin/status` (D6 instance detail).
+async fn instance_status(State(plane): State<Arc<Plane>>, Path(id): Path<String>) -> Response {
+    let Some(decl) = plane.registry.instance_decl(&id).await else {
+        return (StatusCode::NOT_FOUND, "unknown instance").into_response();
+    };
+    let Some(admin) = &decl.spec.admin else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "instance has no admin address",
+        )
+            .into_response();
+    };
+    let mut request = sohara_agent::http_client().get(format!("http://{admin}/admin/status"));
+    if let Some(token) = &decl.spec.admin_token {
+        request = request.bearer_auth(token);
+    }
+    match request.send().await {
+        Ok(response) => {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            let value: Value = serde_json::from_str(&body).unwrap_or(Value::String(body));
+            (status, Json(value)).into_response()
+        }
+        Err(error) => {
+            tracing::warn!("status proxy to {admin} failed: {error}");
+            (StatusCode::BAD_GATEWAY, "instance unreachable").into_response()
+        }
+    }
+}
+
+async fn ui() -> Html<&'static str> {
+    Html(include_str!("../assets/ui.html"))
 }
 
 async fn nodes(State(plane): State<Arc<Plane>>) -> Json<Value> {
