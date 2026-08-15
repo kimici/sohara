@@ -12,7 +12,7 @@ use crate::config::InstanceSpec;
 use crate::process::{handle_command, spawn_child, supervise_tick, terminate_child};
 
 /// Lifecycle state of one managed instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InstanceState {
     Starting,
@@ -22,6 +22,21 @@ pub enum InstanceState {
     Stopping,
     Stopped,
     Failed,
+}
+
+impl InstanceState {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Starting => "starting",
+            Self::Running => "running",
+            Self::Paused => "paused",
+            Self::Restarting => "restarting",
+            Self::Stopping => "stopping",
+            Self::Stopped => "stopped",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 /// Commands accepted from the agent loop (plane operations).
@@ -68,6 +83,13 @@ impl InstanceManager {
     /// Spawn the supervisor task and the initial process.
     #[must_use]
     pub fn spawn(spec: InstanceSpec, client: Client) -> Arc<Self> {
+        Self::spawn_with_desired(spec, "running", client)
+    }
+
+    /// Spawn with an initial desired state: `stopped` starts without a
+    /// process, `paused` starts the process and pauses it (D3).
+    #[must_use]
+    pub fn spawn_with_desired(spec: InstanceSpec, desired: &str, client: Client) -> Arc<Self> {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(RwLock::new(Shared {
             id: spec.id.clone(),
@@ -82,7 +104,13 @@ impl InstanceManager {
             snapshot: shared,
             cmd_tx,
         });
-        tokio::spawn(supervise(spec, client, cmd_rx, manager.snapshot.clone()));
+        tokio::spawn(supervise(
+            spec,
+            client,
+            cmd_rx,
+            manager.snapshot.clone(),
+            desired.to_owned(),
+        ));
         manager
     }
 
@@ -130,10 +158,18 @@ async fn supervise(
     client: Client,
     mut rx: mpsc::UnboundedReceiver<InstanceCommand>,
     shared: Arc<RwLock<Shared>>,
+    initial_desired: String,
 ) {
     let mut child: Option<Child> = None;
     let mut counters = Counters::default();
-    spawn_child(&spec, &shared, &mut child).await;
+    if initial_desired != "stopped" {
+        spawn_child(&spec, &shared, &mut child).await;
+        if initial_desired == "paused" {
+            crate::process::pause_now(&client, &shared, &spec).await;
+        }
+    } else {
+        set_state(&shared, InstanceState::Stopped).await;
+    }
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {

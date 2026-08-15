@@ -1341,6 +1341,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sohara-plane"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sohara-agent",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "sohara-runtime"
 version = "0.1.0"
 dependencies = [

@@ -22,6 +22,7 @@ struct Stub {
     paused: AtomicBool,
     healthy: AtomicBool,
     pending: Mutex<Vec<Value>>,
+    desired: Mutex<Vec<Value>>,
 }
 
 fn healthy_stub() -> Stub {
@@ -92,8 +93,26 @@ async fn unhealthy_instance_gets_restarted() {
 async fn agent_heartbeats_and_executes_plane_commands() {
     let stub = Arc::new(healthy_stub());
     let addr = serve_stub(stub.clone()).await;
-    let command = json!({"seq": 1, "op": "pause", "instance": "orders-1"});
-    stub.pending.lock().unwrap().push(command);
+    stub.pending
+        .lock()
+        .unwrap()
+        .push(json!({"seq": 1, "op": "pause", "instance": "orders-1"}));
+    echo_desired(&stub, addr);
+    let agent = start_agent(addr, &stub).await;
+    let reported = || {
+        let heartbeats = stub.heartbeats.lock().unwrap();
+        heartbeat_reports(&heartbeats, "orders-1", "paused")
+    };
+    assert!(
+        wait_until(reported).await,
+        "heartbeat must report the paused state"
+    );
+    agent.stop().await;
+}
+
+/// Runs the agent against the stub, waits for the pause ack, and asserts the
+/// instance admin was paused.
+async fn start_agent(addr: SocketAddr, stub: &Arc<Stub>) -> RunningAgent {
     let config = agent_config(addr);
     let transport = Arc::new(HttpTransport::new(config.plane.url.clone(), None));
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -110,16 +129,24 @@ async fn agent_heartbeats_and_executes_plane_commands() {
         stub.paused.load(Ordering::Relaxed),
         "instance admin must be paused"
     );
-    let reported = || {
-        let heartbeats = stub.heartbeats.lock().unwrap();
-        heartbeat_reports(&heartbeats, "orders-1", "paused")
-    };
-    assert!(
-        wait_until(reported).await,
-        "heartbeat must report the paused state"
-    );
-    shutdown_tx.send(()).unwrap();
-    agent.await.unwrap().unwrap();
+    RunningAgent {
+        handle: agent,
+        shutdown: Some(shutdown_tx),
+    }
+}
+
+struct RunningAgent {
+    handle: tokio::task::JoinHandle<anyhow::Result<()>>,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl RunningAgent {
+    async fn stop(mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.send(()).unwrap();
+        }
+        self.handle.await.unwrap().unwrap();
+    }
 }
 
 fn spawn_agent(
@@ -134,6 +161,21 @@ fn spawn_agent(
             })
             .await
     })
+}
+
+fn echo_desired(stub: &Arc<Stub>, addr: SocketAddr) {
+    stub.desired.lock().unwrap().push(json!({
+        "spec": {
+            "id": "orders-1",
+            "flow": "unused",
+            "bin": "sh",
+            "args": ["-c", "exec sleep 60"],
+            "admin": addr.to_string(),
+            "health_enabled": true,
+            "policy": { "health_failures": 1000 }
+        },
+        "desired": "running"
+    }));
 }
 
 fn heartbeat_reports(heartbeats: &[Value], instance: &str, state: &str) -> bool {
@@ -190,7 +232,8 @@ async fn serve_stub(stub: Arc<Stub>) -> SocketAddr {
 async fn heartbeat(State(stub): State<Arc<Stub>>, Json(body): Json<Value>) -> Json<Value> {
     stub.heartbeats.lock().unwrap().push(body);
     let commands = std::mem::take(&mut *stub.pending.lock().unwrap());
-    Json(Value::Array(commands))
+    let desired = stub.desired.lock().unwrap().clone();
+    Json(json!({ "commands": commands, "desired": desired }))
 }
 
 async fn ack(State(stub): State<Arc<Stub>>, Json(body): Json<Value>) -> axum::http::StatusCode {

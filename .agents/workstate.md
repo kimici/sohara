@@ -1,20 +1,19 @@
 # Workstate
 
 ## 当前焦点
-- 分布式管理层实施中（目标 goal-86bd2ea3）：**D1 单机 Dashboard ✅、D2 sohara-agent ✅**，下一步 **D3 sohara-plane**。
+- 分布式管理层实施中（目标 goal-86bd2ea3）：**D1 ✅、D2 ✅、D3 ✅**，下一步 **D4 Gateway + 调度**。
 
 ## 状态 / 阻塞
-- 无阻塞。103 测试全绿、clippy 0、fmt、长度门禁；agent 与真实 sohara 二进制 e2e 验证通过。
-- 沙箱环境约束：cargo 需 `CARGO_HOME=/Users/qliu23/workspace/fe/sohara/.cargo-home`。
+- 无阻塞。111 测试全绿、clippy 0、fmt、长度门禁；三进程 e2e（plane+agent+真实 sohara）验证声明式生命周期闭环。
+- 沙箱环境约束：cargo 需 `CARGO_HOME=/Users/qliu23/workspace/fe/sohara/.cargo-home`；本机有 HTTP_PROXY=127.0.0.1:7890，本地 HTTP 需 no_proxy（agent/plane 客户端已内置）。
 
 ## 最近完成
-- D2：`sohara-agent` crate——进程级实例监督（spawn/优雅停机/崩溃与健康失败重启+指数退避）、1s 健康探测、HttpTransport（心跳+命令队列+ack+seq 去重）、`examples/agent.yaml`；plane stub 测试验证 pause 命令链路。
+- D3：`sohara-plane` crate——Registry（JSON 原子持久化 + 期望/实际状态 + 命令队列 seq）、Manager API（声明/desired 更新/删除/flows/nodes）、agent 心跳/ack 接收端、desired/actual 对账；agent 侧 HeartbeatResponse 协议 + desired 成员对账 + `spawn_with_desired`；e2e 声明→拉起→停止→重启闭环。
 
-## 下一步（D3）
-- `sohara-plane` crate：Registry（nodes/flows/instances 期望状态，JSON/SQLite 存储）、Manager API（CRUD/部署）、`/agent/heartbeat` 与 `/agent/ack` 接收端（命令队列+seq）、desired/actual 对账（心跳返回待执行命令）、实例状态展示。
-- 依据：`docs/design/distributed-plane-and-dashboard.md` §8 D3。
+## 下一步（D4）
+- Gateway + 调度：路由表（bindings：path→flow、proxy 默认/bus 显式）、候选实例选择（round-robin/hash/tags；least-loaded 延后）、健康摘除（unknown/failed/stopped 不可选）、proxy 请求级重试、全挂 503。
+- 依据：`docs/design/distributed-plane-and-dashboard.md` §8 D4。
 
 ## 参考
-- 分布式设计：`docs/design/distributed-plane-and-dashboard.md`（v2，D1/D2 已标 ✅）
-- 扩展点：`docs/design/extension-points.md`
+- 分布式设计：`docs/design/distributed-plane-and-dashboard.md`（v2，D1–D3 已标 ✅）
 - 质量门禁：`scripts/check-file-length.sh`、`scripts/check-fn-length.py`

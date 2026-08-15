@@ -4,10 +4,11 @@ use anyhow::{bail, Result};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use crate::config::InstanceSpec;
 use crate::instance::InstanceState;
 
 /// One instance's state as reported in a heartbeat.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceReport {
     pub id: String,
     pub state: InstanceState,
@@ -18,7 +19,7 @@ pub struct InstanceReport {
 }
 
 /// Periodic heartbeat payload.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Heartbeat {
     pub node_id: String,
     pub time: String,
@@ -26,7 +27,7 @@ pub struct Heartbeat {
 }
 
 /// A command queued by the plane for this agent.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub seq: u64,
     pub op: String,
@@ -34,7 +35,7 @@ pub struct Command {
 }
 
 /// Execution result for one command.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandAck {
     pub seq: u64,
     pub ok: bool,
@@ -42,11 +43,28 @@ pub struct CommandAck {
     pub error: Option<String>,
 }
 
+/// A desired instance the plane wants on this node (D3 reconciliation).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DesiredInstance {
+    pub spec: InstanceSpec,
+    /// `running` | `paused` | `stopped`.
+    pub desired: String,
+}
+
+/// The plane's answer to one heartbeat (D3).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct HeartbeatResponse {
+    #[serde(default)]
+    pub commands: Vec<Command>,
+    #[serde(default)]
+    pub desired: Vec<DesiredInstance>,
+}
+
 /// Agent-to-plane control transport abstraction.
 #[async_trait]
 pub trait ControlTransport: Send + Sync {
-    /// Report state and pull queued commands.
-    async fn heartbeat(&self, heartbeat: &Heartbeat) -> Result<Vec<Command>>;
+    /// Report state, pull queued commands, and learn the desired instance set.
+    async fn heartbeat(&self, heartbeat: &Heartbeat) -> Result<HeartbeatResponse>;
     /// Acknowledge one command.
     async fn ack(&self, ack: &CommandAck) -> Result<()>;
 }
@@ -62,7 +80,7 @@ impl HttpTransport {
     #[must_use]
     pub fn new(base: impl Into<String>, token: Option<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: crate::http_client(),
             base: base.into(),
             token,
         }
@@ -83,7 +101,7 @@ impl HttpTransport {
 
 #[async_trait]
 impl ControlTransport for HttpTransport {
-    async fn heartbeat(&self, heartbeat: &Heartbeat) -> Result<Vec<Command>> {
+    async fn heartbeat(&self, heartbeat: &Heartbeat) -> Result<HeartbeatResponse> {
         self.send("/agent/heartbeat", heartbeat).await
     }
 

@@ -118,6 +118,11 @@ pub(crate) async fn handle_command(
     }
 }
 
+/// Pause without a command round-trip (initial desired state; D3).
+pub(crate) async fn pause_now(client: &Client, shared: &RwLock<Shared>, spec: &InstanceSpec) {
+    pause_instance(client, shared, spec).await;
+}
+
 async fn pause_instance(client: &Client, shared: &RwLock<Shared>, spec: &InstanceSpec) {
     let admin = shared.read().await.admin.clone();
     let Some(admin) = admin else {

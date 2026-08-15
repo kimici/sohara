@@ -1,6 +1,6 @@
 //! Agent configuration (D2)
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Full agent configuration file (YAML).
 #[derive(Debug, Clone, Deserialize)]
@@ -31,7 +31,7 @@ pub struct PlaneConfig {
 }
 
 /// One managed sohara instance.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceSpec {
     pub id: String,
     /// Path to the flow YAML passed to `sohara serve`.
@@ -83,7 +83,7 @@ impl Default for InstanceSpec {
 }
 
 /// Restart / health policy for one instance.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Policy {
     /// Restart on crash / health failure (false = mark failed only).
     #[serde(default = "default_true")]

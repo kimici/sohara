@@ -115,6 +115,7 @@ Every example is runnable from the repository root; see [`examples/README.md`](e
 | `sohara-js` | QuickJS bridge + `script` source/transform/sink |
 | `sohara-cli` | `sohara` binary: run / serve / approve / history / init |
 | `sohara-agent` | Node agent (D2): supervises local `sohara serve` instances, heartbeat + command transport |
+| `sohara-plane` | Control plane (D3): registry (desired state, JSON persistence), manager API, agent heartbeat/command API with reconciliation |
 
 ## Status
 
