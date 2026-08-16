@@ -65,6 +65,7 @@ pub async fn serve_with_shutdown_opts(
             plane.clone(),
             options.relay_token.clone(),
             queue_topics(flow),
+            options.admin.map(|addr| addr.to_string()),
         )
     });
     let ctx = BuildContext {

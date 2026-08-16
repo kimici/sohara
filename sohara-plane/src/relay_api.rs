@@ -47,23 +47,29 @@ impl Registry {
     /// advancing the cursors (D5a; at-most-once per cursor).
     pub async fn relay_pull(
         &self,
-        _subscriber: &str,
+        subscriber: &str,
         subscriptions: &[(String, u64)],
     ) -> (
         Vec<sohara_triggers::relay::RelayMessage>,
         Vec<sohara_triggers::relay::PullSubscription>,
     ) {
-        let inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().await;
         let mut messages = Vec::new();
         let mut next = Vec::new();
         for (topic, after) in subscriptions {
             let Some(queue) = inner.relay.get(topic) else {
                 continue;
             };
+            let floor = inner
+                .relay_cursors
+                .get(subscriber)
+                .and_then(|cursors| cursors.get(topic))
+                .copied()
+                .unwrap_or(0);
             let mut delivered = 0u64;
-            let mut cursor = *after;
+            let mut cursor = (*after).max(floor);
             for (seq, payload) in &queue.buffer {
-                if *seq <= *after || delivered >= RELAY_BATCH {
+                if *seq <= cursor || delivered >= RELAY_BATCH {
                     continue;
                 }
                 messages.push(sohara_triggers::relay::RelayMessage {
@@ -74,9 +80,14 @@ impl Registry {
                 cursor = *seq;
                 delivered += 1;
             }
+            inner
+                .relay_cursors
+                .entry(subscriber.to_owned())
+                .or_default()
+                .insert(topic.clone(), cursor);
             next.push(sohara_triggers::relay::PullSubscription {
                 topic: topic.clone(),
-                after: cursor.max(*after),
+                after: cursor,
             });
         }
         (messages, next)

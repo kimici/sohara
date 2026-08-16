@@ -63,6 +63,29 @@ fn running_heartbeat() -> Heartbeat {
 }
 
 #[tokio::test]
+async fn relay_cursor_floor_prevents_replay_after_restart() {
+    let registry = Registry::load(None);
+    registry.relay_publish("orders", json!({"n": 1})).await;
+    let (messages, _) = registry
+        .relay_pull("sub-1", &[("orders".to_owned(), 0)])
+        .await;
+    assert_eq!(messages.len(), 1);
+    let (messages, next) = registry
+        .relay_pull("sub-1", &[("orders".to_owned(), 0)])
+        .await;
+    assert!(messages.is_empty(), "cursor floor must prevent replay");
+    assert_eq!(next[0].after, 1);
+    let (messages, _) = registry
+        .relay_pull("sub-2", &[("orders".to_owned(), 0)])
+        .await;
+    assert_eq!(
+        messages.len(),
+        1,
+        "other subscribers keep their own cursors"
+    );
+}
+
+#[tokio::test]
 async fn instance_status_proxy_passes_the_admin_token() {
     let registry = Registry::load(None);
     let seen_token = Arc::new(Mutex::new(None));

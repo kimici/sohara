@@ -4,7 +4,7 @@ A lightweight single-machine automation framework written in Rust — declarativ
 
 Sohara merges concepts from [tiger](https://github.com/tiger-server/tiger) (event-driven webhook/cron/queue processing) and [rec-core](https://github.com/rec-framework/rec-core) (streaming data pipelines) into one unified model.
 
-> **Design & roadmap**: [`docs/design/redesign-and-roadmap.md`](docs/design/redesign-and-roadmap.md) · **YAML schema**: [`docs/design/yaml-workflow-schema.md`](docs/design/yaml-workflow-schema.md) · **QuickJS API**: [`docs/design/quickjs-api.md`](docs/design/quickjs-api.md) · **Extension points**: [`docs/design/extension-points.md`](docs/design/extension-points.md) · **Distributed plane & dashboard (design)**: [`docs/design/distributed-plane-and-dashboard.md`](docs/design/distributed-plane-and-dashboard.md)
+> **Usage**: [`docs/usage.md`](docs/usage.md) · **Design & roadmap**: [`docs/design/redesign-and-roadmap.md`](docs/design/redesign-and-roadmap.md) · **YAML schema**: [`docs/design/yaml-workflow-schema.md`](docs/design/yaml-workflow-schema.md) · **QuickJS API**: [`docs/design/quickjs-api.md`](docs/design/quickjs-api.md) · **Extension points**: [`docs/design/extension-points.md`](docs/design/extension-points.md) · **Distributed plane & dashboard (design)**: [`docs/design/distributed-plane-and-dashboard.md`](docs/design/distributed-plane-and-dashboard.md)
 
 ## Features
 

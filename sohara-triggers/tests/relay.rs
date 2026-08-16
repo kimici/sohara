@@ -30,6 +30,7 @@ async fn relay_publishes_locally_and_forwards_to_the_plane() {
         format!("http://{addr}"),
         None,
         vec!["orders".to_owned()],
+        Some("sub-1".to_owned()),
     );
     bridge.publish("orders", json!({"n": 1})).unwrap();
     let local_message = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
@@ -60,6 +61,7 @@ async fn relay_injects_remote_messages_into_the_local_bus() {
         format!("http://{addr}"),
         None,
         vec!["orders".to_owned()],
+        Some("sub-1".to_owned()),
     );
     let injected = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
         .await

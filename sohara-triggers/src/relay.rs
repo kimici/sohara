@@ -59,12 +59,17 @@ pub struct RelayBus {
 
 impl RelayBus {
     /// Build the bridge and spawn the pull loop for `topics`.
+    ///
+    /// `subscriber` identifies this consumer to the plane; pass a stable id
+    /// (e.g. the instance admin address) so the plane's cursor floor survives
+    /// process restarts. Falls back to a random id when `None`.
     #[must_use]
     pub fn spawn(
         local: Arc<InProcessBus>,
         plane: String,
         token: Option<String>,
         topics: Vec<String>,
+        subscriber: Option<String>,
     ) -> Arc<Self> {
         let (stop, stop_rx) = watch::channel(false);
         let bridge = Arc::new(Self {
@@ -75,7 +80,7 @@ impl RelayBus {
                 .expect("relay http client"),
             plane,
             token,
-            subscriber: uuid::Uuid::new_v4().to_string(),
+            subscriber: subscriber.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             cursors: Mutex::new(HashMap::new()),
             stop,
         });

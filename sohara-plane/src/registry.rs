@@ -37,6 +37,7 @@ pub(crate) struct Inner {
     pub(crate) routes: HashMap<String, RouteDecl>,
     pub(crate) round_robin: HashMap<String, u64>,
     pub(crate) relay: HashMap<String, crate::relay_api::RelayQueue>,
+    pub(crate) relay_cursors: HashMap<String, HashMap<String, u64>>,
     pub(crate) events: VecDeque<serde_json::Value>,
 }
 

@@ -74,6 +74,7 @@
 - **D5a（本版实现）：PlaneRelayBus（内置中转）**
   - `sink.queue` 发布 → 本机 agent 上报 plane → plane 按订阅表推给订阅实例所在 agent → agent 注入该机 `InProcessBus` → 既有 `queue` 触发器原样消费。
   - 语义：**异步、尽力投递**——plane 为每个订阅实例持有界队列，积压超限丢弃并告警（背压语义与单机有界通道一致）；**不提供 request-reply**。
+  - 游标与重放：plane 按**稳定订阅者 id**（实例 admin 地址）维护游标下限——实例进程重启不重放已确认的消息；plane 重启会丢内存游标（重放邮箱尾部），持久化/至少一次留待 D5b NATS。
   - 代价（明确接受）：plane 承担数据面，是单点与瓶颈；持久化/至少一次留待 NATS。
 - **D5b（后期可选）：NATS/JetStream**
   - 新增 `NatsBus` 实现同一 `EventBus` trait + `nats` 触发器；JetStream 提供持久化、至少一次、积压保留；配合单机幂等键消重；需要时提供 request-reply。
@@ -119,7 +120,7 @@ instances:
 
 - `round-robin`：轮转（默认，D3 即有）。
 - `hash`：对 `sticky_key` 一致性哈希；**弱 sticky**——实例增减时允许漂移，重试可落到别的实例；正确性靠业务幂等键（文档化，不承诺「同一键必须同一实例」）。
-- `tags`：标签/权重亲和 + 过滤（D3 即有）。
+- `tags`：标签/权重亲和 + 过滤（**延后，未实现**）。
 - `least-loaded`：按队列深度/CPU/错误率加权——**依赖 D1 的队列深度指标，D5 之后启用**。
 
 **失败处理**：`unknown/failed/stopped` 实例摘除；proxy 请求级重试（幂等安全）；全挂 503 + 告警。
@@ -184,6 +185,7 @@ instances:
 - **plane 宕机**：agent 策略 `keep-running`（保持现状运行），命令队列重连补拉；期间 Gateway 不可用（单点，明确接受，HA 延后；D6 评估前置 LB）。
 - **中转积压**：plane 每订阅实例有界队列，超限丢弃 + 告警（对齐单机有界通道语义）；持久化/至少一次由 D5b NATS 承接。
 - **消息幂等**：run 内由 delivered 键保证；跨重启依赖业务幂等键（§5 契约）；D5b 的 JetStream 至少一次 + 消重同契约。
+- **中继重放语义（D5a 定稿）**：plane 按稳定订阅者 id 保存游标下限，实例重启不重放已确认消息；plane 重启游标丢失 → 邮箱尾部（每主题最多 1000 条）重放，消费端须以业务幂等键消重。
 - **安全（D6 收尾）**：plane token 守卫 `/api/*`、`/agent/*`、`/relay/*` 与 `/ui`；实例 admin token 由 plane 状态代理透传；relay token 独立。mTLS 与 Gateway 前置 LB 为可选增强（控制面单点已接受，HA 延后）。
 
 ## 10. 与现有代码的接缝（零破坏）
