@@ -196,7 +196,7 @@ $ git tag v0.2.0-alpha && git push origin v0.2.0-alpha
 
 - **本地 HTTP 502 / 连接失败**：检查 `HTTP_PROXY` 环境变量——agent/plane/relay 客户端已内置 `no_proxy`，但外部 `curl` 请加 `--noproxy '*'`。
 - **实例反复 restarting**：多为端口冲突（`--admin` 与触发器端口勿相同）或 `bin` 路径错误；看 agent 日志的 `[id] spawn failed` 与 `restart budget spent`。
-- **文件 sink 看不到输出**：file sink 缓冲记录、仅在优雅停机（flush）时落盘——验证时先 SIGTERM 再看文件；需要实时可见请用 `log` sink。
+- **文件 sink 看不到输出**：file sink 缓冲记录、仅在优雅停机（flush）时落盘——验证时先 SIGTERM 再看文件；需要实时可见请用 `log` sink。曾有一次「写后立即读为空」的 tokio 缓冲写竞态，已在 `FileSink::write` 内显式 `flush` 修复，完整排查报告见 [`reports/tokio-write-visibility-race.md`](reports/tokio-write-visibility-race.md)。
 - **跨机消息未到达**：确认消费实例声明了 `relay` 地址、queue 触发器 topic 与发布 topic 一致；plane 日志可见 `/relay/publish` 202；用 `/api/events` 与实例 `/admin/errors` 排查。
 - **gateway 404**：路径需以声明路由的 `path` 为前缀（`/gw` 后拼接）；`mode: bus` 的路由缺 `topic` 返回 400。
 - **健康检查失败计数**：`policy.health_failures` 默认 3，本地探测 1s 一次，约 3s 判定 unhealthy 并按 `backoff_ms` 退避重启。

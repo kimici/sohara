@@ -15,6 +15,7 @@
 - D5b NATS/JetStream + least-loaded；控制面 HA / mTLS / Gateway 前置 LB；实例 run-history 上传聚合。
 
 ## 参考
+- 排查报告：`docs/reports/tokio-write-visibility-race.md`（tokio 缓冲写竞态）
 - 使用文档：`docs/usage.md`
 - 分布式设计：`docs/design/distributed-plane-and-dashboard.md`（v2，D1–D6 ✅）
 - 质量门禁：`scripts/check-file-length.sh`、`scripts/check-fn-length.py`
