@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: ["**"]
+    tags: ["**"]
   pull_request:
 
 env:
@@ -10,7 +11,7 @@ env:
 
 jobs:
   check:
-    name: fmt + clippy + test + gates
+    name: fmt + clippy + build + test + gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +26,11 @@ jobs:
       - name: Clippy (all targets, warnings denied)
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Full build
+        run: cargo build --workspace --locked
+
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: File length gate (≤300 lines)
         run: bash scripts/check-file-length.sh

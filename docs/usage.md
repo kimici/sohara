@@ -172,7 +172,27 @@ $ curl -X POST http://127.0.0.1:9600/gw/webhook/orders  # 转发到候选实例�
 
 单机 admin UI 默认仅显式 `--admin` 开启，建议绑定 loopback/内网。mTLS、控制面 HA、Gateway 前置 LB 为延后增强（单点已接受，见设计文档 §9）。
 
-## 3. 常见问题排查
+## 3. CI 与发布
+
+- **每次 push / PR**：`.github/workflows/ci.yml` 运行全量验证——`cargo fmt --check`、`cargo clippy --all-targets -D warnings`、`cargo build --workspace --locked`、`cargo test --workspace --locked`、文件/函数长度门禁。
+- **打 tag 发布**：推送 `vXX.YY.ZZ-AAA` 格式的 tag（如 `v0.2.0-alpha`）触发 `.github/workflows/release.yml`——按 matrix 构建四个平台并发布到 GitHub Release（自动生成 release notes）：
+
+| 平台 | 产物 |
+|---|---|
+| windows x64 | `sohara-win-x64.zip` |
+| linux x64 | `sohara-linux-x64.tar.gz` |
+| linux arm64 | `sohara-linux-arm64.tar.gz` |
+| macOS arm64 | `sohara-apple-darwin-arm64.tar.gz` |
+
+每个产物包含 `sohara`、`sohara-agent`、`sohara-plane` 三个二进制。
+
+```console
+$ git tag v0.2.0-alpha && git push origin v0.2.0-alpha
+```
+
+> 注：格式不匹配的 tag（如 `v1.2.3` 无后缀）不会触发发布，但仍会运行 ci.yml 的全量验证。
+
+## 4. 常见问题排查
 
 - **本地 HTTP 502 / 连接失败**：检查 `HTTP_PROXY` 环境变量——agent/plane/relay 客户端已内置 `no_proxy`，但外部 `curl` 请加 `--noproxy '*'`。
 - **实例反复 restarting**：多为端口冲突（`--admin` 与触发器端口勿相同）或 `bin` 路径错误；看 agent 日志的 `[id] spawn failed` 与 `restart budget spent`。

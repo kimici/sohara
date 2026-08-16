@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+-*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-build:
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - platform: linux-x64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+          - platform: apple-darwin-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --release --locked --bin sohara --bin sohara-agent --bin sohara-plane
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/release
+          tar -czf sohara-${{ matrix.platform }}.tar.gz sohara sohara-agent sohara-plane
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd target/release
+          tar -a -cf sohara-${{ matrix.platform }}.zip sohara.exe sohara-agent.exe sohara-plane.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sohara-${{ matrix.platform }}
+          path: target/release/sohara-${{ matrix.platform }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: publish GitHub release
+    needs: release-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Validate tag format (vXX.YY.ZZ-AAA)
+        run: |
+          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9]+$'; then
+            echo "::error::tag '$GITHUB_REF_NAME' does not match vXX.YY.ZZ-AAA"
+            exit 1
+          fi
+
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
