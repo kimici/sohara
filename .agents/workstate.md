@@ -5,7 +5,7 @@
 
 ## 状态 / 阻塞
 - 无阻塞。122 测试全绿、clippy 0、fmt、长度门禁；工作区待提交本轮修复与文档。
-- 沙箱环境约束：cargo 需 `CARGO_HOME=/Users/qliu23/workspace/fe/sohara/.cargo-home`。
+- 沙箱环境约束：cargo 需 `CARGO_HOME=$HOME/workspace/fe/sohara/.cargo-home`。
 
 ## 最近完成
 - vnv 修复：`tags` 标注一致化；RelayBus 稳定订阅者 id（admin 地址）+ plane 游标下限（实例重启不重放，plane 重启重放邮箱尾部——已文档化）。
