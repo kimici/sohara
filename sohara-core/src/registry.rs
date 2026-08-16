@@ -43,6 +43,15 @@ pub enum BuiltStep {
     Control(ControlNode),
 }
 
+/// Step identity available to factories (exposed to scripts via `ctx.step`).
+#[derive(Debug, Clone, Default)]
+pub struct StepMeta {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub step_type: String,
+}
+
 /// Context available to factories at build time.
 #[derive(Clone, Default)]
 pub struct BuildContext {
@@ -50,6 +59,10 @@ pub struct BuildContext {
     pub vars: serde_json::Map<String, Value>,
     /// Shared event bus (present in `serve` mode).
     pub bus: Option<std::sync::Arc<dyn crate::bus::EventBus>>,
+    /// Flow name, set by the runtime/serve entry points.
+    pub flow: String,
+    /// Step identity, set per step by the builder.
+    pub step: Option<StepMeta>,
 }
 
 /// Builds a step of a specific `(kind, type)` from its config object.

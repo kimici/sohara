@@ -1,7 +1,8 @@
 # Sohara QuickJS API
 
-> 状态：草案（draft），S5 落地
+> 状态：已落地（S5/S6 实现，2026-08-17 更新）
 > 本文定义 `script` 步骤与 QuickJS 宿主桥接的完整 API 契约，是 `redesign-and-roadmap.md` §2.1/§2.6/§2.8 的细化。
+> 实现位置：`sohara-js/src/{env,host,callbacks,bridge,step}.rs` + `sohara-js/assets/preamble.js`。
 
 ---
 
@@ -42,10 +43,12 @@
 
 | 字段 | 说明 |
 |---|---|
-| `script` | 脚本文件路径（相对 flow 文件目录） |
+| `script` | 脚本文件路径（相对 flow 文件目录；`require` 相对其目录解析） |
 | `inline` | 内联脚本字符串（与 `script` 二选一） |
 | `entry` | 入口函数名，缺省按 kind：`generate`(source) / `transform`(transform) / `consume`(sink) |
-| `timeout` | 脚本执行超时 |
+| `allow` | 权限列表（`file.write` / `db` / `http` / `notify` / `all`，见 §10） |
+| `db` | SQLite 数据库路径（`sohara.db.query` 使用，需 `allow: [db]`） |
+| `timeout` | 脚本执行超时（预留） |
 
 按 `kind` 约定的入口签名：
 
@@ -77,24 +80,27 @@ function transform(record, ctx) {
 | `sohara.log(level, msg)` | `(string, string)` | 已实现 | 日志；level ∈ `debug/info/warn/error` |
 | `sohara.fail(msg)` | `(string?)` | 已实现 | 抛出步骤失败 |
 | `sohara.json` | `{ parse, stringify }` | 已实现 | JSON 工具（转发 `JSON`） |
-| `sohara.env(name)` | `(string) => string\|undefined` | 已实现 | 读环境变量（无 fallback） |
-| `sohara.var(name)` | `(string) => string\|undefined` | 已实现 | 读流程变量（无 fallback，值为字符串化） |
+| `sohara.env(name, fallback?)` | `(string, any?) => any\|undefined` | 已实现 | 读环境变量；未定义时返回 fallback |
+| `sohara.var(name, fallback?)` | `(string, any?) => any\|undefined` | 已实现 | 读流程变量；未定义时返回 fallback；值为原生 JSON（数字保持 number） |
 | `sohara.now()` | `() => string` | 已实现 | 当前时间（ISO8601） |
 | `sohara.uuid()` | `() => string` | 已实现 | UUID v4 |
-| `sohara.record(data)` | `(object) => Record` | 延后 | 构造 Record |
-| `sohara.sleep(ms)` | `(number) => Promise<void>` | 延后 | 延时（异步） |
-| `sohara.notify(topic, payload)` | `(string, any) => Promise<void>` | 延后 | 投递事件总线 |
-| `sohara.file.read(path)` / `sohara.file.write(path, content)` | — | 延后 | 文件 I/O（workspace 内） |
-| `sohara.http.request(opts)` | `(opts) => Promise<Response>` | 延后 | HTTP 请求 |
-| `sohara.db.query(sql, params?)` | `(string, array?) => Promise<any[]>` | 延后 | 数据库查询 |
+| `sohara.record(data)` | `(object) => Record` | 已实现 | 构造 Record（同 §4 方法） |
+| `sohara.sleep(ms)` | `(number) => void` | 已实现 | 阻塞延时，`ms` clamp 到 `[0, 60000]` |
+| `sohara.notify(topic, payload)` | `(string, any) => void` | 已实现 | 投递事件总线（serve 模式；需 `allow: [notify]`） |
+| `sohara.file.read(path)` / `sohara.file.write(path, content)` | — | 已实现 | 文件 I/O；`read` 恒允许，`write` 需 `allow: [file.write]` |
+| `sohara.http.request(opts)` | `(opts) => Response` | 已实现 | 阻塞 HTTP 请求（需 `allow: [http]`；在独立 OS 线程执行，避免 tokio 上下文冲突） |
+| `sohara.db.query(sql, params?)` | `(string, array?) => object[]` | 已实现 | SQLite 查询（需 `allow: [db]` + `db` 路径；阻塞） |
 | `sohara.registerStep(kind, type, handler)` | `(string, string, function)` | 延后 | 注册自定义步骤（见 §8） |
-| `sohara.require(path)` | `(string) => any` | 延后 | 加载相对模块（见 §6） |
+| `sohara.require(path)` | `(string) => any` | 已实现 | 加载相对模块（同全局 `require`，见 §6） |
 
 ```js
 sohara.log("info", "processing", record.id);
 const key = sohara.env("API_KEY", "dev-key");
-await sohara.notify("logs", { id: record.id });
+sohara.notify("logs", { id: record.id });
+const res = sohara.http.request({ url: "https://api/geo", method: "GET" });
 ```
+
+`sohara.http.request` 的 `opts`：`{ url, method?, headers?, body?, timeout_ms? }`（默认 `GET`、超时 10s，clamp 到 `[1s, 120s]`）；返回 `{ status, ok, headers, text, json }`。
 
 ---
 
@@ -110,36 +116,47 @@ function transform(record, ctx) {
 }
 ```
 
-> 方法版 Record API（`get/set/has/unset`、`id/timestamp/schema/metadata`）延后，未实现。
+**方法版 Record API（已实现）**：每个入口收到的 `record` 都是带方法的 `Record`（`Object.create` 原型，字段即 payload 属性，非枚举成员不进入 `JSON.stringify`）：
+
+| 成员 | 说明 |
+|---|---|
+| `record.get(path)` | 读取 `path`（点分路径，如 `"a.b.c"`；无点号即直接字段） |
+| `record.set(path, value)` | 按点分路径写入（自动创建中间对象） |
+| `record.has(path)` | `get(path) !== undefined` |
+| `record.unset(path)` | 按点分路径删除（中间路径不存在则 no-op） |
+| `record.toJSON()` | 仅返回 payload 字段（不含 `id/timestamp/__meta` 等非枚举成员） |
+| `record.id` / `record.timestamp` | 只读；当前记录的 id / ISO8601 时间戳（来自运行时元信息） |
+| `record.metadata` | 只读；记录的元信息对象（可能为 `undefined`） |
+| `record.schema` | 只读；恒为 `null`（schema 为 S5 可选增强，未实现） |
+
+> `sohara.record(data)` 返回同构对象（无运行时元信息，`id/timestamp` 为 `undefined`）。
 
 ---
 
 ## 5. ExecutionContext（`ctx`）
 
-**已实现**：全局 `__ctx` 暴露为 `{ step: { id } }`；入口函数只接收 `record` 一个参数（函数签名里的 `ctx` 形参收到 `undefined`，脚本应从全局 `__ctx` 读取步骤信息）。
+**已实现**：入口函数签名统一为 `(record, ctx)`（source 为 `(ctx)`）；`ctx` 由桥接层构造（`__makeCtx`），同时保留全局 `__ctx` 兼容旧脚本（恒为无步骤信息的空 ctx）。
 
-**延后（未实现）**：以下能力版 `ctx` 设计预留：
+| 成员 | 类型 | 状态 | 说明 |
+|---|---|---|---|
+| `ctx.step` | `{ id, name, kind, type }` | 已实现 | 当前步骤元信息（来自构建期 `StepMeta`） |
+| `ctx.flow` | `{ name, version }` | 已实现 | 流程元信息（`version` 恒为 `"1"`） |
+| `ctx.state` | object | 已实现 | 步骤累加状态，可读写；**本版为进程内 per-step 内存**（跨记录共享；`__state_sync` 在每次入口返回后回写） |
+| `ctx.log(level?, ...msg)` | function | 已实现 | 等价 `sohara.log` |
+| `ctx.fail(msg?)` | function | 已实现 | 抛出步骤失败（进入错误策略） |
+| `ctx.emit(record)` | function | 已实现 | 产出额外记录：transform 的 `Pass` + 发射 → `Expand(pass + emitted)`；`Filtered` + 发射 → `Expand(emitted)`；`Expand` 追加 |
+| `ctx.checkpoint()` | function | 已实现（no-op） | 请求一次 checkpoint；本版仅 debug 日志，持久化延后 |
+| `ctx.env(name, fallback?)` | function | 已实现 | 读环境变量（等价 `sohara.env`） |
+| `ctx.var(name, fallback?)` | function | 已实现 | 读流程变量 |
+| `ctx.correlation_id` | string | 已实现 | 本次调用关联 id（每次调用生成 UUID v4） |
 
-| 成员 | 类型 | 说明 |
-|---|---|---|
-| `ctx.step` | `{ id, name, kind, type }` | 当前步骤元信息 |
-| `ctx.flow` | `{ name, version }` | 流程元信息 |
-| `ctx.state` | object | 步骤累加状态，可读写；由运行时按 checkpoint 持久化 |
-| `ctx.log(level?, ...msg)` | function | 带步骤上下文的日志 |
-| `ctx.fail(msg?)` | function | 抛出步骤失败（进入错误策略） |
-| `ctx.emit(record)` | function | 产出额外记录（source 或 transform 扇出） |
-| `ctx.checkpoint()` | function | 请求一次 checkpoint（幂等） |
-| `ctx.env(name, fallback?)` | function | 读环境变量（等价 `sohara.env`） |
-| `ctx.var(name, fallback?)` | function | 读流程变量 |
-| `ctx.correlation_id` | string | 本次事件/运行的关联 id |
-
-**状态持久化约定**：`ctx.state` 只接受 JSON 可序列化对象；脚本返回后运行时统一合并/持久化（对应 tiger 的 module state 与 rec 的 `stateful`）。
+**状态持久化约定**：`ctx.state` 只接受 JSON 可序列化对象；脚本返回后运行时统一回写。**checkpoint 持久化（重启恢复）为延后项**——当前 `ctx.state` 仅存在于进程内存，serve 重启即清空。
 
 ---
 
 ## 6. 模块加载 `require`
 
-QuickJS 无原生 ESM，Sohara 提供轻量 CommonJS 风格加载器：
+**已实现**：QuickJS 无原生 ESM，Sohara 提供轻量 CommonJS 风格加载器（per-context `Map` 缓存；`require("sohara")` 返回宿主桥）：
 
 ```js
 // lib.js
@@ -167,18 +184,17 @@ function transform(record, ctx) {
 
 ## 7. 异步桥接（可选增强）
 
-> 地基决策（定稿）：MVP 采用**同步宿主调用**（对齐 rec 的 Rhino 全同步），把异步复杂度挡在 S5 之外。异步桥接是可选增强，**不承诺** S5 一定支持 `await`；实现前必须先做 spike 验证 `quick-js` 能否可靠驱动 Promise/continuation。
+> 地基决策（定稿）：MVP 采用**同步宿主调用**（对齐 rec 的 Rhino 全同步），把异步复杂度挡在 S5 之外。异步桥接是可选增强，**不承诺**支持 `await`；实现前必须先做 spike 验证 `quick-js` 能否可靠驱动 Promise/continuation。
 
-- **基线（同步）**：`sohara.log/env/var/file.read/file.write/record/uuid/now/registerStep` 等同步宿主 API 直接阻塞返回。
-- **异步宿主 API（`sohara.http.request` / `sohara.db.query` / `sohara.sleep` / `sohara.notify`）**：
-  - 无异步桥接时：这些 API **不可用**或退化为阻塞调用（按 flow 权限开关），脚本内不写 `await`。
-  - 启用异步桥接后：返回 Promise，由运行时「挂起 QuickJS + tokio 回调」驱动，脚本可用 `await`/`.then()`。
+- **基线（同步，已落地）**：全部宿主 API 均为**阻塞**调用——`log/env/var/now/uuid/record/sleep/file/http/db/notify/require/emit/state_sync` 直接在当前执行线程完成并返回；脚本内**不要写 `await`**（`sohara.http.request` 等返回普通对象而非 Promise）。
+- `sohara.sleep(ms)` 为阻塞 `thread::sleep`（`ms` clamp 到 `[0, 60000]`）；`sohara.http.request` 在独立 OS 线程执行（`reqwest::blocking` 在其 wait 逻辑里会探测 tokio 运行时，直接在运行时线程上调用会 panic），调用线程 join 等待。
+- 启用异步桥接后：以上 API 改为返回 Promise，由运行时「挂起 QuickJS + tokio 回调」驱动，脚本可用 `await`/`.then()`。
 - 脚本执行超时受 `timeout` 约束；超时视为步骤失败，进入 `on_error` 策略（`retry` 为其一种）。
 
 ```js
-async function transform(record, ctx) {
-  const res = await sohara.http.request({ url: "https://api/geo", method: "GET" });
-  record.set("geo", res.json());
+function transform(record, ctx) {
+  const res = sohara.http.request({ url: "https://api/geo", method: "GET" });
+  record.set("geo", res.json);
   return record;
 }
 ```
@@ -186,6 +202,8 @@ async function transform(record, ctx) {
 ---
 
 ## 8. 步骤注册 `sohara.registerStep`
+
+> 状态：**延后，未实现**（保持设计）。当前自定义步骤一律走 Rust 库注册（`ComponentRegistry`）。
 
 允许脚本内注册自定义 `(kind, type)` 步骤，等价于向 `ComponentRegistry` 动态扩展（见 `redesign-and-roadmap.md` §2.6）：
 
@@ -247,7 +265,8 @@ edges: [[enrich, out]]
 
 ## 10. 安全与限制
 
-- **沙箱**：脚本默认只读访问 `sohara.file.read`（限制在 workspace 内）；`sohara.file.write`、`sohara.db.query`、`sohara.http.request`、`sohara.notify` 按 flow 配置的权限开关启用。
+- **沙箱**：脚本默认只读访问 `sohara.file.read`；`sohara.file.write`、`sohara.db.query`、`sohara.http.request`、`sohara.notify` 按步骤 `allow` 权限开关启用（`file.write` / `db` / `http` / `notify`，或 `all` 全开；未授权调用抛 JS 错误进入 `on_error` 策略）。
+- **db 路径**：`sohara.db.query` 使用步骤配置的 `db` 路径（每次查询重开 SQLite 连接，无跨步骤共享连接）。
 - **资源上限**：单脚本 `timeout`（默认如 30s）、内存上限、`loop/foreach` 的 `max_iterations` 保护、禁止无限递归（由 QuickJS 栈/时间限制）。
-- **确定性**：脚本应尽量无副作用；跨记录共享状态一律经 `ctx.state`（可持久化），不依赖脚本内模块级可变全局（上下文按步骤隔离，重启后重建）。
-- **类型安全**：`record.set` 接受 JSON 兼容值；强类型 `schema` 下做校验；脚本抛错 → 步骤失败 → 走 `on_error` 策略。
+- **确定性**：脚本应尽量无副作用；跨记录共享状态一律经 `ctx.state`（本版进程内内存，重启清空），不依赖脚本内模块级可变全局（上下文按步骤隔离，重启后重建）。
+- **类型安全**：`record.set` 接受 JSON 兼容值；强类型 `schema` 下做校验（未实现）；脚本抛错 → 步骤失败 → 走 `on_error` 策略。

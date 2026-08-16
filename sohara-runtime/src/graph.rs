@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::Value;
-use sohara_config::{FlowConfig, OnError, StepConfig};
+use sohara_config::{step_context, FlowConfig, OnError, StepConfig};
 use sohara_core::{
     parse, parse_duration, BuildContext, BuiltStep, ComponentRegistry, ControlNode, Error, Expr,
     Record, Result, Source, Trigger,
@@ -109,7 +109,8 @@ fn build_partials(
     let mut partials: BTreeMap<String, PartialNode> = BTreeMap::new();
     let mut roots = Vec::new();
     for step in &flow.steps {
-        let (step_node, is_source) = build_step_node(step, registry, ctx)?;
+        let step_ctx = step_context(ctx, step);
+        let (step_node, is_source) = build_step_node(step, registry, &step_ctx)?;
         let when = step
             .when
             .as_deref()

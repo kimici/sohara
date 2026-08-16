@@ -48,7 +48,7 @@ pub use error::{Error, Result};
 pub use expr::{eval, is_truthy, parse, CmpOp, EvalContext, Expr, ExprError};
 pub use pipeline::{Pipeline, PipelineStats};
 pub use record::{Record, RecordBuilder};
-pub use registry::{BuildContext, BuiltStep, ComponentRegistry, StepFactory, StepKind};
+pub use registry::{BuildContext, BuiltStep, ComponentRegistry, StepFactory, StepKind, StepMeta};
 pub use runtime::Runtime;
 pub use sink::{LogSink, Sink, VecSink};
 pub use source::{Source, Trigger, VecSource};

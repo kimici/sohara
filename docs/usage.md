@@ -61,7 +61,8 @@ steps:
 
 ### 1.5 连接器与脚本（示例见 `examples/`）
 
-- `source/sink: file`（csv/json/jsonl）、`source/sink: db`（SQLite，`{path, query}` / `{path, table}`）、`source/sink: http`（`{url, method?, headers?, poll_interval?}`）、`source/transform/sink: script`（QuickJS，`{script | inline, entry?}`）。
+- `source/sink: file`（csv/json/jsonl）、`source/sink: db`（SQLite，`{path, query}` / `{path, table}`）、`source/sink: http`（`{url, method?, headers?, poll_interval?}`）、`source/transform/sink: script`（QuickJS，`{script | inline, entry?, allow?, db?}`）。
+- `script` 宿主桥：`sohara.{log,env,var,now,uuid,record,sleep,notify,file,http,db,require}`、`ctx.{step,flow,state,emit,checkpoint,correlation_id}`、Record 方法（`get/set/has/unset`、`id/timestamp/metadata`）；权限：`file.write`/`db`/`http`/`notify` 需 `allow` 列表。完整契约见 [`docs/design/quickjs-api.md`](design/quickjs-api.md)。
 - 复用片段：`imports: [parts/common.yaml]` + 模板 `templates:` + 步骤 `use: <模板名>`（嵌套 config 深合并）。
 - 完整示例索引见 [`examples/README.md`](../examples/README.md)。
 

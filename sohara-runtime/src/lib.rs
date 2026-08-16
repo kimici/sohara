@@ -69,6 +69,8 @@ pub async fn run_flow_with_store_report(
     let ctx = BuildContext {
         vars: flow.vars.clone().into_iter().collect(),
         bus: None,
+        flow: flow.name.clone(),
+        step: None,
     };
     let graph = Arc::new(FlowGraph::build(flow, registry, &ctx)?);
     let vars: Map<String, Value> = ctx.vars.clone();

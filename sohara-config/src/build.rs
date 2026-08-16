@@ -20,14 +20,17 @@ pub struct BuiltFlow {
 /// Returns a config error naming the failing step when a factory rejects the
 /// config, the `(kind, type)` pair is unknown, or a control step appears.
 pub fn build_flow(flow: &FlowConfig, registry: &ComponentRegistry) -> Result<BuiltFlow> {
-    let ctx = BuildContext {
+    let base = BuildContext {
         vars: flow.vars.clone().into_iter().collect(),
         bus: None,
+        flow: flow.name.clone(),
+        step: None,
     };
     let mut source = None;
     let mut transforms = Vec::new();
     let mut sinks = Vec::new();
     for step in &flow.steps {
+        let ctx = step_context(&base, step);
         match build_step(step, registry, &ctx)? {
             BuiltStep::Source(step_source) => source = Some(step_source),
             BuiltStep::Transform(step_transform) => transforms.push(step_transform),
@@ -45,6 +48,18 @@ pub fn build_flow(flow: &FlowConfig, registry: &ComponentRegistry) -> Result<Bui
         transforms,
         sinks,
     })
+}
+
+/// A per-step build context carrying the step's identity (script `ctx.step`).
+pub fn step_context(base: &BuildContext, step: &StepConfig) -> BuildContext {
+    let mut ctx = base.clone();
+    ctx.step = Some(sohara_core::StepMeta {
+        id: step.id.clone(),
+        name: step.name.clone().unwrap_or_else(|| step.id.clone()),
+        kind: step.kind().as_str().to_owned(),
+        step_type: step.step_type().to_owned(),
+    });
+    ctx
 }
 
 fn build_step(

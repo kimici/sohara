@@ -74,6 +74,8 @@ pub async fn serve_with_shutdown_opts(
             || bus as std::sync::Arc<dyn sohara_core::EventBus>,
             |bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>,
         )),
+        flow: flow.name.clone(),
+        step: None,
     };
     let graph = Arc::new(FlowGraph::build_with_triggers(
         flow, registry, &ctx, &triggers,
@@ -169,6 +171,8 @@ pub async fn approve_pending(
     let ctx = BuildContext {
         vars: flow.vars.clone().into_iter().collect(),
         bus: None,
+        flow: flow.name.clone(),
+        step: None,
     };
     let graph = Arc::new(FlowGraph::build(flow, registry, &ctx)?);
     let config = ExecutorConfig {

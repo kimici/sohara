@@ -7,7 +7,7 @@ mod templates;
 mod trigger;
 mod validate;
 
-pub use build::{build_flow, BuiltFlow};
+pub use build::{build_flow, step_context, BuiltFlow};
 pub use error::ConfigError;
 pub use trigger::TriggerConfig;
 
