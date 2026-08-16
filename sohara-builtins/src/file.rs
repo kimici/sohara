@@ -233,6 +233,12 @@ impl FileSink {
         file.write_all(content.as_bytes())
             .await
             .map_err(Error::Io)?;
+        // Tokio's `write_all` returns once the last chunk is accepted into
+        // its internal buffer; the underlying write may still be in flight
+        // on the blocking pool. Flush so the data is actually in the file
+        // before the sink reports success (an immediate read would race it
+        // otherwise — observed on Linux).
+        file.flush().await.map_err(Error::Io)?;
         Ok(())
     }
 }
