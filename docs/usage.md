@@ -175,7 +175,7 @@ $ curl -X POST http://127.0.0.1:9600/gw/webhook/orders  # 转发到候选实例�
 ## 3. CI 与发布
 
 - **每次 push / PR**：`.github/workflows/ci.yml` 运行全量验证——`cargo fmt --check`、`cargo clippy --all-targets -D warnings`、`cargo build --workspace --locked`、`cargo test --workspace --locked`、文件/函数长度门禁。
-- **打 tag 发布**：推送 `vXX.YY.ZZ-AAA` 格式的 tag（如 `v0.2.0-alpha`）触发 `.github/workflows/release.yml`——按 matrix 构建四个平台并发布到 GitHub Release（自动生成 release notes）：
+- **打 tag 发布**：推送 `vXX.YY.ZZ` 或 `vXX.YY.ZZ-AAA` 格式的 tag（如 `v0.2.0`、`v0.2.0-alpha`）触发 `.github/workflows/release.yml`——按 matrix 构建四个平台并发布到 GitHub Release（自动生成 release notes）：
 
 | 平台 | 产物 |
 |---|---|
@@ -190,7 +190,7 @@ $ curl -X POST http://127.0.0.1:9600/gw/webhook/orders  # 转发到候选实例�
 $ git tag v0.2.0-alpha && git push origin v0.2.0-alpha
 ```
 
-> 注：格式不匹配的 tag（如 `v1.2.3` 无后缀）不会触发发布，但仍会运行 ci.yml 的全量验证。
+> 注：`vXX.YY.ZZ` 无后缀同样触发发布；其他格式（如 `v1.2.3-alpha.1` 带点的后缀）不会触发发布，但仍会运行 ci.yml 的全量验证。
 
 ## 4. 常见问题排查
 

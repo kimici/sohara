@@ -131,9 +131,10 @@ $ bash scripts/check-file-length.sh && python3 scripts/check-fn-length.py
 ```
 
 CI: every push/PR runs the full verification pipeline (fmt, clippy, build,
-tests, length gates). Tags in the `vXX.YY.ZZ-AAA` format build four-platform
-release bundles (win-x64, linux-x64, linux-arm64, apple-darwin-arm64) and
-publish them as GitHub Release assets — see [`docs/usage.md`](docs/usage.md).
+tests, length gates). Tags in the `vXX.YY.ZZ` or `vXX.YY.ZZ-AAA` format build
+four-platform release bundles (win-x64, linux-x64, linux-arm64,
+apple-darwin-arm64) and publish them as GitHub Release assets — see
+[`docs/usage.md`](docs/usage.md).
 
 Note: when the sandbox blocks `~/.cargo`, export `CARGO_HOME=$PWD/.cargo-home` first.
 
