@@ -10,25 +10,25 @@ pub enum Expr {
     /// Dotted field path relative to the record, e.g. `a.b.c` or `$.a.b`
     Path(Vec<String>),
     /// List literal, e.g. `[1, "a"]`
-    List(Vec<Expr>),
+    List(Vec<Self>),
     /// Logical negation
-    Not(Box<Expr>),
+    Not(Box<Self>),
     /// Logical and
-    And(Box<Expr>, Box<Expr>),
+    And(Box<Self>, Box<Self>),
     /// Logical or
-    Or(Box<Expr>, Box<Expr>),
+    Or(Box<Self>, Box<Self>),
     /// Comparison
-    Cmp(CmpOp, Box<Expr>, Box<Expr>),
+    Cmp(CmpOp, Box<Self>, Box<Self>),
     /// Membership test: `item in list`
-    In(Box<Expr>, Box<Expr>),
+    In(Box<Self>, Box<Self>),
     /// Arithmetic
-    Add(Box<Expr>, Box<Expr>),
-    Sub(Box<Expr>, Box<Expr>),
-    Mul(Box<Expr>, Box<Expr>),
-    Div(Box<Expr>, Box<Expr>),
-    Rem(Box<Expr>, Box<Expr>),
+    Add(Box<Self>, Box<Self>),
+    Sub(Box<Self>, Box<Self>),
+    Mul(Box<Self>, Box<Self>),
+    Div(Box<Self>, Box<Self>),
+    Rem(Box<Self>, Box<Self>),
     /// Function call, e.g. `int(age)` or `now()`
-    Call(String, Vec<Expr>),
+    Call(String, Vec<Self>),
 }
 
 /// Comparison operators
