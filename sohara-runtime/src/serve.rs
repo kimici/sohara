@@ -5,7 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use sohara_core::{
-    BuildContext, ComponentRegistry, ControlNode, Error, Result, StateStore, Trigger,
+    BuildContext, ComponentRegistry, ControlNode, Error, EventBus, Result, StateStore, Trigger,
 };
 use sohara_triggers::{build_trigger, InProcessBus};
 
@@ -31,6 +31,10 @@ pub struct ServeOptions {
     pub relay: Option<String>,
     /// Bearer token for the relay endpoints.
     pub relay_token: Option<String>,
+    /// Optional replacement for the default in-process event bus.
+    pub shared_bus: Option<Arc<dyn EventBus>>,
+    /// Loaded stdio extensions used for external triggers.
+    pub extension_host: Option<Arc<crate::StdioExtensionHost>>,
 }
 
 /// Run a flow in serve mode until the shutdown future resolves, then stop
@@ -58,7 +62,7 @@ pub async fn serve_with_shutdown_opts(
     shutdown: impl Future<Output = ()> + Send,
     options: ServeOptions,
 ) -> Result<StatsSnapshot> {
-    let triggers = build_triggers(flow, &bus)?;
+    let triggers = build_triggers(flow, &bus, options.extension_host.as_deref())?;
     let relay_bus = options.relay.as_ref().map(|plane| {
         sohara_triggers::RelayBus::spawn(
             bus.clone(),
@@ -70,10 +74,13 @@ pub async fn serve_with_shutdown_opts(
     });
     let ctx = BuildContext {
         vars: flow.vars.clone().into_iter().collect(),
-        bus: Some(relay_bus.clone().map_or_else(
-            || bus as std::sync::Arc<dyn sohara_core::EventBus>,
-            |bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>,
-        )),
+        bus: Some(match options.shared_bus.clone() {
+            Some(bus) => bus,
+            None => relay_bus.clone().map_or_else(
+                || bus as std::sync::Arc<dyn sohara_core::EventBus>,
+                |bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>,
+            ),
+        }),
         flow: flow.name.clone(),
         step: None,
     };
@@ -202,10 +209,18 @@ pub async fn approve_pending(
 fn build_triggers(
     flow: &sohara_config::FlowConfig,
     bus: &Arc<InProcessBus>,
+    extension_host: Option<&crate::StdioExtensionHost>,
 ) -> Result<Vec<Arc<dyn Trigger>>> {
     flow.triggers
         .iter()
-        .map(|config| build_trigger(config, Some(bus.clone())))
+        .map(|config| {
+            if let Some(host) = extension_host {
+                if let Some(trigger) = host.build_trigger(config)? {
+                    return Ok(trigger);
+                }
+            }
+            build_trigger(config, Some(bus.clone()))
+        })
         .collect()
 }
 

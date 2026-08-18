@@ -1,0 +1,8 @@
+name: sohara-builtin-redis
+version: "0.1.0"
+builtin: true
+command: ../../target/debug/sohara-builtin-redis
+state_stores:
+  - type: builtin-redis-store
+event_buses:
+  - type: builtin-redis-bus

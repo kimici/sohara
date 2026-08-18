@@ -36,6 +36,9 @@ pub struct FlowConfig {
     pub edges: Vec<EdgeConfig>,
     #[serde(default)]
     pub checkpoint: Option<CheckpointConfig>,
+    /// Optional event bus provider (serve mode). Absent = in-process bus.
+    #[serde(default)]
+    pub event_bus: Option<ComponentConfig>,
     /// Imported YAML fragments contributing templates (S5).
     #[serde(default)]
     pub imports: Vec<String>,
@@ -51,9 +54,48 @@ pub struct CheckpointConfig {
     /// Persist step states every N processed records.
     #[serde(default)]
     pub every: Option<u64>,
-    /// Path of the state store file.
+    /// Path of the state store file, or an external store provider config.
     #[serde(default)]
-    pub store: Option<String>,
+    pub store: Option<StoreConfig>,
+}
+
+/// A provider config selected by `type`, with either nested `config:` or the
+/// flat shorthand convention used elsewhere in the schema.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ComponentConfig {
+    #[serde(rename = "type")]
+    pub component_type: String,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl ComponentConfig {
+    pub fn config(&self) -> Result<Map<String, Value>, ConfigError> {
+        let mut extra = self.extra.clone();
+        if let Some(value) = extra.remove("config") {
+            if let Some(key) = extra.keys().next() {
+                return Err(ConfigError::UnknownField {
+                    id: self.component_type.clone(),
+                    field: key.clone(),
+                });
+            }
+            return match value {
+                Value::Object(map) => Ok(map),
+                _ => Err(ConfigError::ConfigNotMap {
+                    id: self.component_type.clone(),
+                }),
+            };
+        }
+        Ok(extra)
+    }
+}
+
+/// State store selection: built-in path string or external provider object.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum StoreConfig {
+    Path(String),
+    Component(ComponentConfig),
 }
 
 /// One step declaration. Inside `templates`, the `id` may be omitted (the

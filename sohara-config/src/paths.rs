@@ -4,13 +4,30 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use crate::FlowConfig;
+use crate::{FlowConfig, StoreConfig};
 
 impl FlowConfig {
     /// Resolve `path` / `script` string fields relative to the flow file dir.
     pub(crate) fn resolve_paths(&mut self, base: &Path) {
         for step in &mut self.steps {
             resolve_in(&mut step.extra, base);
+        }
+        if let Some(checkpoint) = &mut self.checkpoint {
+            match &mut checkpoint.store {
+                Some(StoreConfig::Path(path)) => {
+                    let candidate = Path::new(path);
+                    if !candidate.is_absolute() {
+                        *path = base.join(candidate).to_string_lossy().into_owned();
+                    }
+                }
+                Some(StoreConfig::Component(component)) => {
+                    resolve_in(&mut component.extra, base);
+                }
+                None => {}
+            }
+        }
+        if let Some(event_bus) = &mut self.event_bus {
+            resolve_in(&mut event_bus.extra, base);
         }
     }
 }

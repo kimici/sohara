@@ -44,7 +44,7 @@ pub enum BuiltStep {
 }
 
 /// Step identity available to factories (exposed to scripts via `ctx.step`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StepMeta {
     pub id: String,
     pub name: String,
@@ -85,6 +85,12 @@ impl ComponentRegistry {
     /// Register a factory for a `(kind, type)` pair.
     pub fn register(&mut self, kind: StepKind, ty: &str, factory: Arc<dyn StepFactory>) {
         self.factories.insert((kind, ty.to_owned()), factory);
+    }
+
+    /// Whether a `(kind, type)` factory is already registered.
+    #[must_use]
+    pub fn contains(&self, kind: StepKind, ty: &str) -> bool {
+        self.factories.contains_key(&(kind, ty.to_owned()))
     }
 
     /// Build a step, returning a readable error for unknown `(kind, type)`.

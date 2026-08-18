@@ -1,0 +1,17 @@
+[package]
+name = "sohara-builtin-extensions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+redis = "0.27"
+rusqlite = "0.32"
+tokio = { workspace = true }
+zeromq = "0.4"

@@ -10,7 +10,7 @@ members = [
     "sohara-js",
     "sohara-cli",
     "sohara-agent",
-    "sohara-plane",
+    "sohara-plane", "sohara-builtin-extensions",
 ]
 resolver = "2"
 

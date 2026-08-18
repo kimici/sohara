@@ -1,0 +1,10 @@
+name: sohara-builtin-sqlite
+version: "0.1.0"
+builtin: true
+command: ../../target/debug/sohara-builtin-sqlite
+state_stores:
+  - type: builtin-sqlite-store
+triggers:
+  - type: builtin-sqlite-trigger
+event_buses:
+  - type: builtin-sqlite-bus

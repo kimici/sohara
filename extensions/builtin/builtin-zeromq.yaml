@@ -1,0 +1,8 @@
+name: sohara-builtin-zeromq
+version: "0.1.0"
+builtin: true
+command: ../../target/debug/sohara-builtin-zeromq
+triggers:
+  - type: builtin-zeromq-trigger
+event_buses:
+  - type: builtin-zeromq-bus
