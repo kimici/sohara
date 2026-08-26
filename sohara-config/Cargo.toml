@@ -10,3 +10,4 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 thiserror = "1"
 sohara-core = { path = "../sohara-core" }
+sohara-js = { path = "../sohara-js" }

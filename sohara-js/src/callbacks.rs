@@ -52,7 +52,15 @@ fn register_util_callbacks(context: &Context) -> Result<()> {
         .add_callback("__uuid", host::uuid)
         .map_err(|error| js_error("uuid callback", &error))?;
     context
-        .add_callback("__sleep", |ms: f64| host::sleep(ms))
+        .add_callback("__sleep", |args: Arguments| -> StdResult<JsValue, String> {
+            let mut args = args.into_vec();
+            let value = arg_js(&mut args, 0).unwrap_or(JsValue::Undefined);
+            let ms = js_to_value(&value)
+                .as_f64()
+                .or_else(|| js_to_value(&value).as_i64().map(|value| value as f64))
+                .ok_or_else(|| "expected numeric argument at position 0".to_owned())?;
+            host::sleep(ms)
+        })
         .map_err(|error| js_error("sleep callback", &error))?;
     Ok(())
 }
@@ -129,9 +137,47 @@ fn register_script_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
             move |path: String| host::require_source(&env, path)
         })
         .map_err(|error| js_error("require callback", &error))?;
+    context
+        .add_callback("__register_step", {
+            let env = env.clone();
+            move |kind: String, step_type: String, handler_name: String| {
+                host::register_step(&env, kind, step_type, handler_name)
+            }
+        })
+        .map_err(|error| js_error("registerStep callback", &error))?;
+    context
+        .add_callback("__flow_run", {
+            let env = env.clone();
+            move |args: Arguments| -> StdResult<JsValue, String> {
+                let mut args = args.into_vec();
+                let config = arg_js(&mut args, 0).unwrap_or(JsValue::Undefined);
+                host::flow_run(&env, config)
+            }
+        })
+        .map_err(|error| js_error("flow.run callback", &error))?;
+    context
+        .add_callback("__flow_stop", {
+            let env = env.clone();
+            move |handle_id: String| host::flow_stop(&env, handle_id)
+        })
+        .map_err(|error| js_error("flow.stop callback", &error))?;
+    context
+        .add_callback("__flow_save", {
+            let env = env.clone();
+            move |args: Arguments| -> StdResult<JsValue, String> {
+                let mut args = args.into_vec();
+                let config = arg_js(&mut args, 0).unwrap_or(JsValue::Undefined);
+                let path = arg_string(&args, 1)?;
+                host::flow_save(&env, config, path)
+            }
+        })
+        .map_err(|error| js_error("flow.save callback", &error))?;
     register_state_callbacks(context, env)?;
     context
-        .add_callback("__checkpoint", host::checkpoint)
+        .add_callback("__checkpoint", {
+            let env = env.clone();
+            move || host::checkpoint(&env)
+        })
         .map_err(|error| js_error("checkpoint callback", &error))?;
     Ok(())
 }

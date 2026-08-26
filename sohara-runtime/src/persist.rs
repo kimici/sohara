@@ -4,24 +4,80 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Mutex};
 
 use serde_json::{Map, Value};
 
-use sohara_core::{Record, Result, StateStore};
+use sohara_core::{Record, Result, StateAccessor, StateStore};
 
 use crate::executor::Executor;
 use crate::graph::{FlowGraph, Node, NodeStep};
 use crate::stats::ExecutorConfig;
 
+pub(crate) struct RuntimeState {
+    pub(crate) store: Option<Arc<dyn StateStore>>,
+    pub(crate) run_id: String,
+    pub(crate) since_checkpoint: Arc<AtomicUsize>,
+    pub(crate) states: Arc<Mutex<HashMap<String, Value>>>,
+}
+
+impl RuntimeState {
+    pub(crate) fn new(flow: &str, config: &ExecutorConfig) -> Arc<Self> {
+        Arc::new(Self {
+            store: config.store.clone(),
+            run_id: resolve_run_id(flow, config.store.as_ref(), config.resume),
+            since_checkpoint: Arc::new(AtomicUsize::new(0)),
+            states: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    pub(crate) fn seed(&self, states: HashMap<String, Value>) {
+        *self.states.lock().expect("runtime state poisoned") = states;
+    }
+}
+
+impl StateAccessor for RuntimeState {
+    fn get(&self, step_id: &str) -> Value {
+        self.states
+            .lock()
+            .expect("runtime state poisoned")
+            .get(step_id)
+            .cloned()
+            .unwrap_or(Value::Object(Map::new()))
+    }
+
+    fn set(&self, step_id: &str, value: Value) {
+        // SAFETY: script callbacks must not call this while the executor holds
+        // the same state mutex across an await point.
+        self.states
+            .lock()
+            .expect("runtime state poisoned")
+            .insert(step_id.to_owned(), value);
+    }
+
+    fn checkpoint(&self) -> Result<()> {
+        let Some(store) = &self.store else {
+            return Ok(());
+        };
+        let states = self.states.lock().expect("runtime state poisoned").clone();
+        for (node_id, state) in states {
+            let key = format!("{}:state:{node_id}", self.run_id);
+            store.save(&key, state)?;
+        }
+        self.since_checkpoint.store(0, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 impl Executor {
     pub(crate) fn store(&self) -> Option<&Arc<dyn StateStore>> {
-        self.store.as_ref()
+        self.runtime.store.as_ref()
     }
 
     /// The value expressions evaluate against: `{ record, state }` when the
     /// node has accumulated state, otherwise the plain payload.
     pub(crate) async fn eval_value(&self, node: &Arc<Node>, record: &Record) -> Value {
-        let states = self.states.lock().await;
+        let states = self.runtime.states.lock().expect("runtime state poisoned");
         match states.get(&node.id) {
             Some(state) => {
                 serde_json::json!({ "record": record.payload.clone(), "state": state.clone() })
@@ -31,48 +87,41 @@ impl Executor {
     }
 
     pub(crate) async fn state_value(&self, node_id: &str) -> Value {
-        self.states
+        self.runtime
+            .states
             .lock()
-            .await
+            .expect("runtime state poisoned")
             .get(node_id)
             .cloned()
             .unwrap_or(Value::Object(Map::new()))
     }
 
-    /// Update a node's accumulated state and persist it immediately.
+    /// Update a node's accumulated state in memory; persistence is driven by
+    /// checkpointing.
     pub(crate) async fn update_state(&self, node_id: &str, value: Value) {
-        self.states
+        self.runtime
+            .states
             .lock()
-            .await
+            .expect("runtime state poisoned")
             .insert(node_id.to_owned(), value.clone());
-        if let Some(store) = self.store() {
-            let key = format!("{}:state:{node_id}", self.run_id());
-            if let Err(error) = store.save(&key, value) {
-                tracing::error!("failed to persist state of '{node_id}': {error}");
-            }
-        }
     }
 
     /// Persist every accumulated state.
     pub(crate) async fn checkpoint(&self) {
-        let Some(store) = self.store() else {
-            return;
-        };
-        let states = self.states.lock().await.clone();
-        for (node_id, state) in states {
-            let key = format!("{}:state:{node_id}", self.run_id());
-            if let Err(error) = store.save(&key, state) {
-                tracing::error!("checkpoint failed for '{node_id}': {error}");
-            }
+        if let Err(error) = self.runtime.checkpoint() {
+            tracing::error!("checkpoint failed: {error}");
         }
-        self.since_checkpoint.store(0, Ordering::Relaxed);
     }
 
     pub(crate) async fn maybe_checkpoint(&self) {
         let Some(every) = self.checkpoint_every else {
             return;
         };
-        let since = self.since_checkpoint.fetch_add(1, Ordering::Relaxed) + 1;
+        let since = self
+            .runtime
+            .since_checkpoint
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         if since >= every as usize {
             self.checkpoint().await;
         }
@@ -209,16 +258,17 @@ pub(crate) fn initial_states(
 ) -> HashMap<String, Value> {
     let mut states = HashMap::new();
     for (id, node) in &graph.nodes {
-        let mut initial = node.state.clone().unwrap_or(Value::Object(Map::new()));
-        if config.resume {
-            if let Some(store) = &config.store {
+        let restored = if config.resume {
+            config.store.as_ref().and_then(|store| {
                 let key = format!("{run_id}:state:{id}");
-                if let Ok(Some(saved)) = store.load(&key) {
-                    initial = saved;
-                }
-            }
-        }
-        if node.state.is_some() {
+                store.load(&key).ok().flatten()
+            })
+        } else {
+            None
+        };
+        if let Some(saved) = restored {
+            states.insert(id.clone(), saved);
+        } else if let Some(initial) = node.state.clone() {
             states.insert(id.clone(), initial);
         }
     }

@@ -1471,6 +1471,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sohara-core",
+ "sohara-js",
  "thiserror",
 ]
 
@@ -1518,6 +1519,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sohara-builtins",
  "sohara-config",
  "sohara-core",
@@ -1567,6 +1569,7 @@ dependencies = [
  "sohara-builtins",
  "sohara-config",
  "sohara-core",
+ "sohara-js",
  "sohara-persistence",
  "sohara-triggers",
  "tokio",

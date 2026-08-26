@@ -16,6 +16,7 @@ mod bridge;
 mod callbacks;
 mod convert;
 mod env;
+mod flow;
 mod host;
 mod step;
 
@@ -26,8 +27,8 @@ use quick_js::JsValue;
 use serde::Deserialize;
 use serde_json::Value;
 use sohara_core::{
-    BuildContext, BuiltStep, ComponentRegistry, Error, Record, Result, StepFactory, StepKind,
-    TransformOutcome,
+    BuildContext, BuiltStep, ComponentRegistry, Error, Record, RegisteredStep, Result, StepFactory,
+    StepKind, TransformOutcome,
 };
 
 use crate::convert::js_to_value;
@@ -70,7 +71,7 @@ fn load_source(cfg: &ScriptConfig, what: &str) -> Result<String> {
 }
 
 /// Build the per-step environment from the build context.
-fn step_env(cfg: &ScriptConfig, ctx: &BuildContext) -> StepEnv {
+fn step_env(cfg: &ScriptConfig, ctx: &BuildContext, source: &str) -> StepEnv {
     let step = ctx.step.clone().unwrap_or_default();
     let script_dir = cfg
         .script
@@ -88,12 +89,49 @@ fn step_env(cfg: &ScriptConfig, ctx: &BuildContext) -> StepEnv {
         flow: ctx.flow.clone(),
         step,
         bus: ctx.bus.clone().map(crate::env::BusHandle),
+        state_accessor: ctx.state_accessor.clone().map(crate::env::AccessorHandle),
+        flow_runner: ctx.flow_runner.clone().map(crate::env::FlowRunnerHandle),
         permissions: cfg.allow.clone(),
         db: cfg.db.clone(),
-        state: bridge::initial_state(),
+        registration_source: Some(Arc::new(source.to_owned())),
+        registered_steps: ctx.registered_steps.clone(),
+        subflow_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
         emit: Arc::new(std::sync::Mutex::new(Vec::new())),
         correlation_id: String::new(),
     }
+}
+
+fn registered_env(registered: &RegisteredStep, ctx: &BuildContext) -> StepEnv {
+    let step = ctx.step.clone().unwrap_or_default();
+    StepEnv {
+        name: if step.name.is_empty() {
+            "script".to_owned()
+        } else {
+            step.name.clone()
+        },
+        script_dir: registered.script_dir.clone(),
+        vars: ctx.vars.clone(),
+        flow: ctx.flow.clone(),
+        step,
+        bus: ctx.bus.clone().map(crate::env::BusHandle),
+        permissions: registered.permissions.clone(),
+        db: registered.db.clone(),
+        state_accessor: ctx.state_accessor.clone().map(crate::env::AccessorHandle),
+        flow_runner: ctx.flow_runner.clone().map(crate::env::FlowRunnerHandle),
+        registration_source: Some(Arc::new(registered.source.clone())),
+        registered_steps: None,
+        subflow_handles: Arc::new(std::sync::Mutex::new(Vec::new())),
+        emit: Arc::new(std::sync::Mutex::new(Vec::new())),
+        correlation_id: String::new(),
+    }
+}
+
+fn scan_registered_steps(env: &StepEnv, source: &str) -> Result<()> {
+    if env.registered_steps.is_none() {
+        return Ok(());
+    }
+    let context = crate::bridge::setup_context(env)?;
+    crate::bridge::run_script(&context, source)
 }
 
 /// Translate a script return value into a transform outcome.
@@ -148,3 +186,10 @@ pub fn register_all(registry: &mut ComponentRegistry) {
     );
     registry.register(StepKind::Sink, "script", factory(step::ScriptSink::build));
 }
+
+/// Create a factory for one flow-local step registered from a script.
+pub fn registered_factory(registered: RegisteredStep) -> Arc<dyn StepFactory> {
+    factory(move |_config, ctx| step::build_registered(&registered, ctx))
+}
+
+pub use flow::evaluate_flow_file;

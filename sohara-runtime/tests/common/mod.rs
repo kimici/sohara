@@ -87,6 +87,7 @@ pub fn flaky_factory(failures: usize) -> Arc<dyn StepFactory> {
 pub fn registry(extras: Vec<(&str, &str, Arc<dyn StepFactory>)>) -> ComponentRegistry {
     let mut registry = ComponentRegistry::new();
     register_all(&mut registry);
+    sohara_js::register_all(&mut registry);
     for (kind, ty, factory) in extras {
         let kind = match kind {
             "source" => sohara_core::StepKind::Source,

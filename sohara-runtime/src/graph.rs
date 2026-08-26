@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::Value;
-use sohara_config::{step_context, FlowConfig, OnError, StepConfig};
+use sohara_config::{prepare_registry, step_context, FlowConfig, OnError, StepConfig};
 use sohara_core::{
     parse, parse_duration, BuildContext, BuiltStep, ComponentRegistry, ControlNode, Error, Expr,
     Record, Result, Source, Trigger,
@@ -37,7 +37,8 @@ impl FlowGraph {
         registry: &ComponentRegistry,
         ctx: &BuildContext,
     ) -> Result<Self> {
-        let (partials, roots) = build_partials(flow, registry, ctx)?;
+        let registry = prepare_registry(flow, registry, ctx)?;
+        let (partials, roots) = build_partials(flow, &registry, ctx)?;
         Self::assemble(flow, partials, roots)
     }
 
@@ -51,7 +52,8 @@ impl FlowGraph {
         ctx: &BuildContext,
         triggers: &[Arc<dyn Trigger>],
     ) -> Result<Self> {
-        let (mut partials, mut roots) = build_partials(flow, registry, ctx)?;
+        let registry = prepare_registry(flow, registry, ctx)?;
+        let (mut partials, mut roots) = build_partials(flow, &registry, ctx)?;
         for (config, trigger) in flow.triggers.iter().zip(triggers) {
             partials.insert(
                 config.id.clone(),

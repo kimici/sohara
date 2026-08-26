@@ -7,7 +7,7 @@ mod templates;
 mod trigger;
 mod validate;
 
-pub use build::{build_flow, step_context, BuiltFlow};
+pub use build::{build_flow, prepare_registry, step_context, BuiltFlow};
 pub use error::ConfigError;
 pub use trigger::TriggerConfig;
 
@@ -289,6 +289,19 @@ impl FlowConfig {
             source,
         })?;
         flow.apply_templates()?;
+        flow.validate()?;
+        Ok(flow)
+    }
+
+    /// Parse and validate a JSON flow object, optionally resolving relative
+    /// paths against `base`.
+    pub fn from_json_value(value: Value, base: Option<&Path>) -> Result<Self, ConfigError> {
+        let mut flow: Self = serde_json::from_value(value)
+            .map_err(|error| ConfigError::Invalid(error.to_string()))?;
+        flow.apply_templates()?;
+        if let Some(base) = base {
+            flow.resolve_paths(base);
+        }
         flow.validate()?;
         Ok(flow)
     }

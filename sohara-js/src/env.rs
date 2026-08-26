@@ -1,10 +1,11 @@
 //! Per-step environment for script contexts (S6 host API)
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use serde_json::{Map, Value};
-use sohara_core::{EventBus, StepMeta};
+use sohara_core::{EventBus, FlowRunner, RegisteredStep, StateAccessor, StepMeta};
 
 /// Permissions grantable to a script via the `allow` config (see §10).
 pub const PERM_FILE_WRITE: &str = "file.write";
@@ -19,6 +20,18 @@ pub const PERM_ALL: &str = "all";
 pub struct BusHandle(pub Arc<dyn EventBus>);
 
 impl std::panic::RefUnwindSafe for BusHandle {}
+
+/// `RefUnwindSafe` wrapper around the runtime state bridge.
+#[derive(Clone)]
+pub struct AccessorHandle(pub Arc<dyn StateAccessor>);
+
+impl std::panic::RefUnwindSafe for AccessorHandle {}
+
+/// `RefUnwindSafe` wrapper around the runtime sub-flow runner.
+#[derive(Clone)]
+pub struct FlowRunnerHandle(pub Arc<dyn FlowRunner>);
+
+impl std::panic::RefUnwindSafe for FlowRunnerHandle {}
 
 /// Per-step script environment, cloned into every context invocation.
 #[derive(Clone)]
@@ -39,10 +52,18 @@ pub struct StepEnv {
     pub permissions: Vec<String>,
     /// SQLite path for `sohara.db.query`.
     pub db: Option<String>,
-    /// Shared `ctx.state` holder (per step, per run).
-    pub state: Arc<Mutex<Value>>,
+    /// Shared runtime state bridge (`ctx.state` / `ctx.checkpoint`).
+    pub state_accessor: Option<AccessorHandle>,
+    /// Shared runtime sub-flow runner (`sohara.flow.run`).
+    pub flow_runner: Option<FlowRunnerHandle>,
+    /// Source used when scanning `sohara.registerStep()` at build time.
+    pub registration_source: Option<Arc<String>>,
+    /// Collected flow-local registered steps during the pre-build pass.
+    pub registered_steps: Option<Arc<Mutex<Vec<RegisteredStep>>>>,
+    /// Started sub-flow handles for invocation-scope cleanup.
+    pub subflow_handles: Arc<Mutex<Vec<String>>>,
     /// Per-invocation `ctx.emit` buffer.
-    pub emit: Arc<Mutex<Vec<Value>>>,
+    pub emit: Arc<std::sync::Mutex<Vec<Value>>>,
     /// Correlation id for the current invocation.
     pub correlation_id: String,
 }

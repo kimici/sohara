@@ -289,12 +289,104 @@ pub fn emit(env: &StepEnv, record: JsValue) -> Result<JsValue, String> {
     Ok(JsValue::Undefined)
 }
 
-pub fn state_sync(env: &StepEnv, state: JsValue) -> Result<JsValue, String> {
-    *env.state.lock().map_err(|_| "state poisoned".to_owned())? = js_to_value(&state);
+pub fn register_step(
+    env: &StepEnv,
+    kind: String,
+    step_type: String,
+    handler_name: String,
+) -> Result<JsValue, String> {
+    let Some(registered_steps) = &env.registered_steps else {
+        return Ok(JsValue::Undefined);
+    };
+    let source = env
+        .registration_source
+        .as_ref()
+        .ok_or_else(|| "registerStep: missing script source".to_owned())?;
+    let kind = match kind.as_str() {
+        "source" => sohara_core::StepKind::Source,
+        "transform" => sohara_core::StepKind::Transform,
+        "sink" => sohara_core::StepKind::Sink,
+        "control" => sohara_core::StepKind::Control,
+        other => return Err(format!("registerStep: unsupported kind '{other}'")),
+    };
+    registered_steps
+        .lock()
+        .map_err(|_| "registered steps collector poisoned".to_owned())?
+        .push(sohara_core::RegisteredStep {
+            kind,
+            step_type,
+            handler_name,
+            source: (**source).clone(),
+            script_dir: env.script_dir.clone(),
+            permissions: env.permissions.clone(),
+            db: env.db.clone(),
+        });
     Ok(JsValue::Undefined)
 }
 
-pub fn checkpoint() -> Result<JsValue, String> {
-    tracing::debug!("script ctx.checkpoint() requested (no-op in the current runtime)");
+pub fn flow_run(env: &StepEnv, config: JsValue) -> Result<JsValue, String> {
+    let runner = env.flow_runner.as_ref().ok_or_else(|| {
+        "sohara.flow.run(...) is unavailable outside runtime execution".to_owned()
+    })?;
+    let handle = runner
+        .0
+        .run(js_to_value(&config))
+        .map_err(|error| format!("sohara.flow.run(...): {error:?}"))?;
+    env.subflow_handles
+        .lock()
+        .map_err(|_| "subflow handle list poisoned".to_owned())?
+        .push(handle.clone());
+    Ok(JsValue::String(handle))
+}
+
+pub fn flow_stop(env: &StepEnv, handle_id: String) -> Result<JsValue, String> {
+    let runner = env.flow_runner.as_ref().ok_or_else(|| {
+        "sohara.flow.stop(...) is unavailable outside runtime execution".to_owned()
+    })?;
+    runner
+        .0
+        .stop(&handle_id)
+        .map_err(|error| format!("sohara.flow.stop({handle_id}): {error:?}"))?;
+    if let Ok(mut handles) = env.subflow_handles.lock() {
+        handles.retain(|handle| handle != &handle_id);
+    }
+    Ok(JsValue::Undefined)
+}
+
+pub fn flow_save(env: &StepEnv, config: JsValue, path: String) -> Result<JsValue, String> {
+    let full = if std::path::Path::new(&path).is_absolute() {
+        std::path::PathBuf::from(&path)
+    } else {
+        env.script_dir
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(&path)
+    };
+    let yaml = serde_yaml::to_string(&js_to_value(&config))
+        .map_err(|error| format!("sohara.flow.save({path}): {error}"))?;
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("sohara.flow.save({path}): {error}"))?;
+    }
+    std::fs::write(&full, yaml).map_err(|error| format!("sohara.flow.save({path}): {error}"))?;
+    Ok(JsValue::Undefined)
+}
+
+pub fn state_sync(env: &StepEnv, state: JsValue) -> Result<JsValue, String> {
+    if let Some(accessor) = &env.state_accessor {
+        accessor.0.set(&env.step.id, js_to_value(&state));
+    }
+    Ok(JsValue::Undefined)
+}
+
+pub fn checkpoint(env: &StepEnv) -> Result<JsValue, String> {
+    if let Some(accessor) = &env.state_accessor {
+        accessor
+            .0
+            .checkpoint()
+            .map_err(|error| format!("ctx.checkpoint(): {error}"))?;
+    } else {
+        tracing::debug!("script ctx.checkpoint() requested without a runtime state accessor");
+    }
     Ok(JsValue::Undefined)
 }

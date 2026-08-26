@@ -32,6 +32,7 @@ pub mod bus;
 pub mod control;
 pub mod error;
 pub mod expr;
+pub mod flow_runner;
 pub mod pipeline;
 pub mod record;
 pub mod registry;
@@ -46,13 +47,16 @@ pub use bus::EventBus;
 pub use control::{ControlNode, JoinMode, SwitchCase};
 pub use error::{Error, Result};
 pub use expr::{eval, is_truthy, parse, CmpOp, EvalContext, Expr, ExprError};
+pub use flow_runner::FlowRunner;
 pub use pipeline::{Pipeline, PipelineStats};
 pub use record::{Record, RecordBuilder};
-pub use registry::{BuildContext, BuiltStep, ComponentRegistry, StepFactory, StepKind, StepMeta};
+pub use registry::{
+    BuildContext, BuiltStep, ComponentRegistry, RegisteredStep, StepFactory, StepKind, StepMeta,
+};
 pub use runtime::Runtime;
 pub use sink::{LogSink, Sink, VecSink};
 pub use source::{Source, Trigger, VecSource};
-pub use store::StateStore;
+pub use store::{StateAccessor, StateStore};
 pub use transform::{
     AddFieldTransform, AssertOnFail, AssertTransform, Assertion, Check, FilterTransform,
     MapTransform, Transform, TransformOutcome,

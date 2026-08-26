@@ -85,12 +85,8 @@ pub fn invocation(env: &StepEnv) -> StepEnv {
     let mut env = env.clone();
     env.correlation_id = uuid::Uuid::new_v4().to_string();
     env.emit = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    env.subflow_handles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     env
-}
-
-/// Default initial script state (`{}`).
-pub fn initial_state() -> std::sync::Arc<std::sync::Mutex<Value>> {
-    std::sync::Arc::new(std::sync::Mutex::new(Value::Object(serde_json::Map::new())))
 }
 
 /// Merge `ctx.emit` records into the outcome of an entry call.
@@ -121,6 +117,22 @@ pub fn merge_emitted(env: &StepEnv, outcome: TransformOutcome) -> Result<Transfo
     })
 }
 
+pub fn cleanup_subflows(env: &StepEnv) -> Result<()> {
+    let Some(flow_runner) = &env.flow_runner else {
+        return Ok(());
+    };
+    let handles = std::mem::take(
+        &mut *env
+            .subflow_handles
+            .lock()
+            .map_err(|_| Error::Runtime("subflow handle list poisoned".into()))?,
+    );
+    for handle in handles {
+        flow_runner.0.stop(&handle)?;
+    }
+    Ok(())
+}
+
 fn call(context: &Context, wrapper: &str, args: Vec<JsValue>) -> Result<JsValue> {
     context
         .call_function(wrapper, args)
@@ -142,10 +154,10 @@ fn flow_js(env: &StepEnv) -> JsValue {
 
 fn state_js(env: &StepEnv) -> JsValue {
     let state = env
-        .state
-        .lock()
-        .map(|guard| guard.clone())
-        .unwrap_or_default();
+        .state_accessor
+        .as_ref()
+        .map(|accessor| accessor.0.get(&env.step.id))
+        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
     value_to_js(&state)
 }
 

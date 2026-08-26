@@ -118,3 +118,54 @@ edges: [[in, gate], [gate, out]]
     let (_stats, records) = run_with_probe(yaml).await;
     assert_eq!(records.len(), 1);
 }
+
+#[tokio::test]
+async fn script_ctx_state_restores_on_resume() {
+    let store = Arc::new(MemoryStore::new());
+    let records = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let registry = registry(vec![(
+        "sink",
+        "probe",
+        common::probe_factory(records.clone()),
+    )]);
+    let first = sohara_config::FlowConfig::from_yaml_str(
+        r#"
+name: script-state
+version: "1"
+checkpoint: { every: 1 }
+steps:
+  - { id: in, kind: source, type: inline, config: { records: [{n: 1}, {n: 2}, {n: 3}] } }
+  - { id: js, kind: transform, type: script, config: { inline: "function transform(record, ctx) { ctx.state.count = (ctx.state.count || 0) + 1; record.count = ctx.state.count; ctx.checkpoint(); return record; }" } }
+  - { id: out, kind: sink, type: probe }
+edges: [[in, js], [js, out]]
+"#,
+    )
+    .unwrap();
+    run_flow_with_store(&first, &registry, Some(store.clone()), false)
+        .await
+        .unwrap();
+
+    let second = sohara_config::FlowConfig::from_yaml_str(
+        r#"
+name: script-state
+version: "1"
+checkpoint: { every: 1 }
+steps:
+  - { id: in, kind: source, type: inline, config: { records: [{n: 4}, {n: 5}] } }
+  - { id: js, kind: transform, type: script, config: { inline: "function transform(record, ctx) { ctx.state.count = (ctx.state.count || 0) + 1; record.count = ctx.state.count; return record; }" } }
+  - { id: out, kind: sink, type: probe }
+edges: [[in, js], [js, out]]
+"#,
+    )
+    .unwrap();
+    let report = run_flow_with_store(&second, &registry, Some(store.clone()), true)
+        .await
+        .unwrap();
+    assert_eq!(report.processed, 2);
+    let records = records.lock().unwrap().clone();
+    let counts = records
+        .iter()
+        .filter_map(|record| record.get("count").and_then(serde_json::Value::as_i64))
+        .collect::<Vec<_>>();
+    assert_eq!(counts, vec![1, 2, 3, 4, 5]);
+}

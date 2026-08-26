@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::pause::PauseGate;
 use crate::stats::{Counters, ExecutorConfig, RunReport, StatsSnapshot, StepStat};
 
-use sohara_core::{Record, Result, StateStore, TransformOutcome};
+use sohara_core::{Record, Result, TransformOutcome};
 
 use crate::buffers::{BatchBuffer, JoinBuffer};
 use crate::graph::{ErrorPolicy, FlowGraph, Node};
@@ -33,22 +33,21 @@ pub struct Executor {
     pub(crate) error_ring: Mutex<ErrorRing>,
     started_at: String,
     pub(crate) pause: Option<Arc<PauseGate>>,
-    pub(crate) store: Option<Arc<dyn StateStore>>,
-    pub(crate) run_id: String,
+    pub(crate) runtime: Arc<crate::persist::RuntimeState>,
     pub(crate) flow_name: String,
     pub(crate) checkpoint_every: Option<u64>,
-    pub(crate) since_checkpoint: AtomicUsize,
-    pub(crate) states: Mutex<HashMap<String, Value>>,
 }
 
 impl Executor {
     #[must_use]
-    pub fn new(graph: Arc<FlowGraph>, vars: Map<String, Value>, config: ExecutorConfig) -> Self {
+    pub(crate) fn new(
+        graph: Arc<FlowGraph>,
+        vars: Map<String, Value>,
+        config: ExecutorConfig,
+        runtime: Arc<crate::persist::RuntimeState>,
+    ) -> Self {
         let (joins, batches, sinks) = crate::buffers::scan_nodes(&graph);
         let flow_name = graph.name.clone();
-        let run_id =
-            crate::persist::resolve_run_id(&flow_name, config.store.as_ref(), config.resume);
-        let states = Mutex::new(crate::persist::initial_states(&graph, &run_id, &config));
         Self {
             graph,
             vars,
@@ -60,12 +59,9 @@ impl Executor {
             error_ring: Mutex::new(ErrorRing::default()),
             started_at: chrono::Utc::now().to_rfc3339(),
             pause: config.pause,
-            store: config.store,
-            run_id,
+            runtime,
             flow_name,
             checkpoint_every: config.checkpoint_every,
-            since_checkpoint: AtomicUsize::new(0),
-            states,
         }
     }
 
@@ -83,7 +79,7 @@ impl Executor {
     /// Full run report including per-step statistics (S6).
     pub async fn report(&self) -> RunReport {
         RunReport {
-            run_id: self.run_id.clone(),
+            run_id: self.runtime.run_id.clone(),
             flow: self.flow_name.clone(),
             started_at: self.started_at.clone(),
             stats: self.snapshot(),

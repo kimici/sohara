@@ -10,6 +10,7 @@ flow file, and outputs land in `examples/output/`).
 | `serve.yaml` | S3 | `sohara serve examples/serve.yaml` | http + cron triggers, graceful shutdown |
 | `approve.yaml` | S4 | `sohara run examples/approve.yaml` then `sohara approve examples/approve.yaml` | human-in-the-loop approval + checkpoint store |
 | `script.yaml` | S5 | `sohara run examples/script.yaml` | QuickJS transform using the `sohara` host bridge |
+| `js-flow.js` | D1 | `sohara run examples/js-flow.js` | 用 QuickJS `sohara.flow(...)` 直接定义并运行整条 flow |
 | `imports.yaml` | S5 | `sohara run examples/imports.yaml` | template fragments from `parts/common.yaml` via `imports`/`use` |
 | `db.yaml` | S5 | `sohara run examples/db.yaml` | inline records → SQLite sink |
 | `db-read.yaml` | S5 | `sohara run examples/db-read.yaml` | SQLite source → jsonl (reads the table written by `db.yaml`) |

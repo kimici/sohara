@@ -16,6 +16,7 @@ mod runner;
 pub mod serve;
 mod stats;
 mod stdio_extensions;
+mod subflow;
 mod walker;
 mod warnings;
 
@@ -31,6 +32,7 @@ pub use stats::{ExecutorConfig, RunReport, StatsSnapshot, StepStat};
 pub use stdio_extensions::{
     load_stdio_extensions, load_stdio_extensions_with_trusted, LoadedExtension, StdioExtensionHost,
 };
+pub use subflow::RuntimeFlowRunner;
 
 use serde_json::{Map, Value};
 use sohara_core::{BuildContext, Result, StateStore};
@@ -70,14 +72,6 @@ pub async fn run_flow_with_store_report(
     if !flow.triggers.is_empty() {
         tracing::warn!("flow declares triggers; they are ignored in 'run' mode (use 'serve')");
     }
-    let ctx = BuildContext {
-        vars: flow.vars.clone().into_iter().collect(),
-        bus: None,
-        flow: flow.name.clone(),
-        step: None,
-    };
-    let graph = Arc::new(FlowGraph::build(flow, registry, &ctx)?);
-    let vars: Map<String, Value> = ctx.vars.clone();
     let config = ExecutorConfig {
         store,
         resume,
@@ -87,7 +81,25 @@ pub async fn run_flow_with_store_report(
             .and_then(|checkpoint| checkpoint.every),
         pause: None,
     };
-    let executor = Arc::new(Executor::new(graph, vars, config));
+    let runtime = crate::persist::RuntimeState::new(&flow.name, &config);
+    let flow_runner = Arc::new(crate::RuntimeFlowRunner::new(registry.clone(), None, None));
+    let ctx = BuildContext {
+        vars: flow.vars.clone().into_iter().collect(),
+        bus: None,
+        state_accessor: Some(runtime.clone()),
+        flow_runner: Some(flow_runner),
+        registered_steps: None,
+        flow: flow.name.clone(),
+        step: None,
+    };
+    let graph = Arc::new(FlowGraph::build(flow, registry, &ctx)?);
+    let vars: Map<String, Value> = ctx.vars.clone();
+    runtime.seed(crate::persist::initial_states(
+        &graph,
+        runtime.run_id.as_str(),
+        &config,
+    ));
+    let executor = Arc::new(Executor::new(graph, vars, config, runtime));
     let runner = executor.clone();
     runner.run().await?;
     Ok(executor.report().await)

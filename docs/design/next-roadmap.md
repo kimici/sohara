@@ -1,6 +1,6 @@
 # Sohara Next Roadmap: Gap Closure + Ecosystem Expansion
 
-> Status: **draft v8** (awaiting user approval)
+> Status: **draft v9** (implementation-aligned)
 > Date: 2026-08-17
 > Depends on: `redesign-and-roadmap.md` (S0–S7 complete), `distributed-plane-and-dashboard.md` (D1–D6 complete)
 > Updates: `extension-points.md` (§1 registerStep promoted to A2; §2 extension interface promoted to B)
@@ -17,18 +17,25 @@
 | S0–S7 core roadmap | ✅ | 122 tests, 8 examples, release binary |
 | D1–D6 distributed | ✅ | 121 tests, 3-process e2e |
 | sohara-js host bridge | ✅ | 22 tests (6 script + 6 host_core + 10 host_io) |
+| A1 `ctx.state` / `ctx.checkpoint()` bridge | ✅ | runtime state accessor + checkpoint/resume tests |
+| A2 `sohara.registerStep()` | ✅ | flow-local two-pass build + `script_registration` integration test |
+| Phase B stdio extension host | ✅ (v1 scope) | step/trigger/store/bus host + builtin sqlite/redis/zeromq + integration tests |
+| D1 JS flow builder + CLI `.js` entry | ✅ | `sohara.flow(...).build()/save()` + `sohara run/serve/approve flow.js` |
+| D2 JS sub-flow runtime | ✅ (first slice) | `sohara.flow.run(config)` + `{ stop() }` handle + `flow_run_api` integration tests |
 
-### 1.2 Known Gaps (noop / deferred)
+### 1.2 Current Gaps / Remaining Work
 
 | Item | Current State | Root Cause |
 |---|---|---|
-| `ctx.checkpoint()` | Debug log only | JS bridge has no reference to runtime `persist.rs` |
-| `ctx.state` persistence | In-process memory; lost on restart | `StepEnv.state` disconnected from `Executor.states` + `StateStore` |
-| `sohara.registerStep()` | Not implemented | No code |
-| Async bridge | Not spiked | QuickJS Promise support is synchronous polling only (see A0a) |
+| Async bridge | Still undecided | QuickJS Promise support is synchronous polling only (see A0a) |
+| stdio timeout / restart / richer error model | Partially implemented | Protocol host works, but operational policy is still thin |
+| Generic event-bus subscribe abstraction | Not unified | Current `EventBus` trait is publish-only; subscribe remains provider-specific |
+| `sohara server` / flow CRUD / restart recovery | Not implemented | Phase C not started |
+| `sohara.flow.run(...)` advanced lifecycle | Partial | D2 first slice done; timeout/restart/path semantics still thin |
+| npm SDK / dev server / scaffolding | Not implemented | Phase E not started |
 | Schema validation | Not implemented | S5 optional enhancement, deferred |
 
-### 1.3 Core Disconnect
+### 1.3 Historical Disconnect (resolved)
 
 ```
 Runtime Executor                    JS Bridge (StepEnv)
@@ -40,7 +47,7 @@ Runtime Executor                    JS Bridge (StepEnv)
 └─────────────────────┘            └──────────────────────┘
 ```
 
-`BuildContext` carries no `StateStore` or checkpoint callback. `StepEnv` cannot reach the runtime's persistence layer.
+This disconnect has now been closed via `StateAccessor` injection: script state and checkpoint now bridge directly into the runtime's authoritative state/store path.
 
 ---
 
@@ -502,3 +509,4 @@ Each phase is independently deliverable. The roadmap is approved phase-by-phase 
 | v6 | 2026-08-18 | Phase B expanded to trigger/state-store/event-bus host support; flow config integration and the publish-only external event-bus caveat documented explicitly |
 | v7 | 2026-08-18 | Builtin namespace policy added (`builtin-*` reserved for trusted Sohara manifests); trusted builtin sqlite/redis/zeromq extension set introduced as validation targets |
 | v8 | 2026-08-18 | Builtin direction corrected: builtin extensions are Rust executables rather than repository scripts; builtin manifests now target Rust binaries, with sqlite validated and redis/zeromq present as Rust builtin providers |
+| v9 | 2026-08-26 | Status aligned to implementation: A1/A2 complete, Phase B v1 complete, D1 complete, D2 first slice complete, remaining gaps narrowed to async bridge / server / npm / operational polish |

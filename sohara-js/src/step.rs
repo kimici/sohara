@@ -3,9 +3,14 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde_json::Value;
-use sohara_core::{BuiltStep, Record, Result, Sink, Source, Transform, TransformOutcome};
+use sohara_core::{
+    BuildContext, BuiltStep, Record, RegisteredStep, Result, Sink, Source, Transform,
+    TransformOutcome,
+};
 
-use crate::bridge::{call_consume, call_source, call_transform, invocation, merge_emitted};
+use crate::bridge::{
+    call_consume, call_source, call_transform, cleanup_subflows, invocation, merge_emitted,
+};
 use crate::env::StepEnv;
 use crate::{load_source, outcome_from_js, parse_config, step_env, ScriptConfig};
 
@@ -21,10 +26,12 @@ impl ScriptStep {
     /// Build the step from config.
     pub fn build(config: &Value, ctx: &sohara_core::BuildContext) -> Result<BuiltStep> {
         let cfg: ScriptConfig = parse_config(config, "script step")?;
-        let env = step_env(&cfg, ctx);
+        let source = load_source(&cfg, "script step")?;
+        let env = step_env(&cfg, ctx, &source);
+        crate::scan_registered_steps(&env, &source)?;
         let step = Self {
             name: env.name.clone(),
-            source: load_source(&cfg, "script step")?,
+            source,
             entry: cfg.entry.unwrap_or_else(|| "transform".to_owned()),
             env,
         };
@@ -39,7 +46,9 @@ impl Transform for ScriptStep {
         let context = crate::bridge::setup_context(&env)?;
         crate::bridge::run_script(&context, &self.source)?;
         let result = call_transform(&context, &env, &self.entry, &record)?;
-        merge_emitted(&env, outcome_from_js(result)?)
+        let outcome = merge_emitted(&env, outcome_from_js(result)?)?;
+        cleanup_subflows(&env)?;
+        Ok(outcome)
     }
 
     fn name(&self) -> &str {
@@ -59,10 +68,12 @@ impl ScriptSource {
     /// Build the step from config.
     pub fn build(config: &Value, ctx: &sohara_core::BuildContext) -> Result<BuiltStep> {
         let cfg: ScriptConfig = parse_config(config, "script source")?;
-        let env = step_env(&cfg, ctx);
+        let source = load_source(&cfg, "script source")?;
+        let env = step_env(&cfg, ctx, &source);
+        crate::scan_registered_steps(&env, &source)?;
         let step = Self {
             name: env.name.clone(),
-            source: load_source(&cfg, "script source")?,
+            source,
             entry: cfg.entry.unwrap_or_else(|| "generate".to_owned()),
             env,
         };
@@ -78,6 +89,7 @@ impl Source for ScriptSource {
         crate::bridge::run_script(&context, &self.source)?;
         let result = call_source(&context, &env, &self.entry)?;
         let outcome = merge_emitted(&env, outcome_from_js(result)?)?;
+        cleanup_subflows(&env)?;
         let records = records_from_outcome(outcome)?;
         Ok(Box::pin(futures::stream::iter(records.into_iter().map(Ok))))
     }
@@ -99,10 +111,12 @@ impl ScriptSink {
     /// Build the step from config.
     pub fn build(config: &Value, ctx: &sohara_core::BuildContext) -> Result<BuiltStep> {
         let cfg: ScriptConfig = parse_config(config, "script sink")?;
-        let env = step_env(&cfg, ctx);
+        let source = load_source(&cfg, "script sink")?;
+        let env = step_env(&cfg, ctx, &source);
+        crate::scan_registered_steps(&env, &source)?;
         let step = Self {
             name: env.name.clone(),
-            source: load_source(&cfg, "script sink")?,
+            source,
             entry: cfg.entry.unwrap_or_else(|| "consume".to_owned()),
             env,
         };
@@ -117,6 +131,7 @@ impl Sink for ScriptSink {
         let context = crate::bridge::setup_context(&env)?;
         crate::bridge::run_script(&context, &self.source)?;
         call_consume(&context, &env, &self.entry, &record)?;
+        cleanup_subflows(&env)?;
         Ok(())
     }
 
@@ -132,4 +147,39 @@ fn records_from_outcome(outcome: TransformOutcome) -> Result<Vec<Record>> {
         TransformOutcome::Filtered => Ok(Vec::new()),
         TransformOutcome::Fail(error) => Err(error),
     }
+}
+
+pub(crate) fn build_registered(
+    registered: &RegisteredStep,
+    ctx: &BuildContext,
+) -> Result<BuiltStep> {
+    let env = crate::registered_env(registered, ctx);
+    let name = env.name.clone();
+    let source = registered.source.clone();
+    let entry = registered.handler_name.clone();
+    Ok(match registered.kind {
+        sohara_core::StepKind::Source => BuiltStep::Source(Box::new(ScriptSource {
+            name,
+            source,
+            entry,
+            env,
+        })),
+        sohara_core::StepKind::Transform => BuiltStep::Transform(Box::new(ScriptStep {
+            name,
+            source,
+            entry,
+            env,
+        })),
+        sohara_core::StepKind::Sink => BuiltStep::Sink(Box::new(ScriptSink {
+            name,
+            source,
+            entry,
+            env,
+        })),
+        sohara_core::StepKind::Control => {
+            return Err(sohara_core::Error::Config(
+                "script-registered control steps are not supported".to_owned(),
+            ))
+        }
+    })
 }

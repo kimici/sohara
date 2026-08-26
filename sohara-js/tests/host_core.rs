@@ -180,3 +180,45 @@ async fn host_require_modules() {
     assert_eq!(payload["hasSohara"], true);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn host_flow_run_handle_stop() {
+    let step = transform(
+        inline(
+            r#"
+            function transform(record, ctx) {
+                var handle = sohara.flow.run(
+                    sohara.flow("child")
+                        .source("in", "inline", { records: [{ n: 1 }] })
+                        .sink("out", "log", {})
+                        .build()
+                );
+                handle.stop();
+                record.ok = true;
+                return record;
+            }
+            "#,
+        ),
+        ctx(Map::new(), None),
+    );
+    let payload = pass(step.transform(Record::new(json!({}))).await.unwrap());
+    assert_eq!(payload["ok"], true);
+}
+
+#[tokio::test]
+async fn host_sleep_accepts_integer_argument() {
+    let step = transform(
+        inline(
+            r#"
+            function transform(record, ctx) {
+                sohara.sleep(1);
+                record.ok = true;
+                return record;
+            }
+            "#,
+        ),
+        ctx(Map::new(), None),
+    );
+    let payload = pass(step.transform(Record::new(json!({}))).await.unwrap());
+    assert_eq!(payload["ok"], true);
+}

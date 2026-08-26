@@ -120,7 +120,7 @@ impl Executor {
     }
 
     pub(crate) fn run_id(&self) -> &str {
-        &self.run_id
+        &self.runtime.run_id
     }
 
     pub(crate) fn counters(&self) -> &Counters {

@@ -72,21 +72,6 @@ pub async fn serve_with_shutdown_opts(
             options.admin.map(|addr| addr.to_string()),
         )
     });
-    let ctx = BuildContext {
-        vars: flow.vars.clone().into_iter().collect(),
-        bus: Some(match options.shared_bus.clone() {
-            Some(bus) => bus,
-            None => relay_bus.clone().map_or_else(
-                || bus as std::sync::Arc<dyn sohara_core::EventBus>,
-                |bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>,
-            ),
-        }),
-        flow: flow.name.clone(),
-        step: None,
-    };
-    let graph = Arc::new(FlowGraph::build_with_triggers(
-        flow, registry, &ctx, &triggers,
-    )?);
     let config = ExecutorConfig {
         store: options.store,
         resume: options.resume,
@@ -96,7 +81,40 @@ pub async fn serve_with_shutdown_opts(
             .and_then(|checkpoint| checkpoint.every),
         pause: Some(Arc::new(crate::pause::PauseGate::default())),
     };
-    let executor = Arc::new(Executor::new(graph, ctx.vars.clone(), config));
+    let runtime = crate::persist::RuntimeState::new(&flow.name, &config);
+    let flow_runner = Arc::new(crate::RuntimeFlowRunner::new(
+        registry.clone(),
+        options.shared_bus.clone().or_else(|| {
+            relay_bus
+                .clone()
+                .map(|bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>)
+        }),
+        options.extension_host.clone(),
+    ));
+    let ctx = BuildContext {
+        vars: flow.vars.clone().into_iter().collect(),
+        bus: Some(match options.shared_bus.clone() {
+            Some(bus) => bus,
+            None => relay_bus.clone().map_or_else(
+                || bus as std::sync::Arc<dyn sohara_core::EventBus>,
+                |bridge| bridge as std::sync::Arc<dyn sohara_core::EventBus>,
+            ),
+        }),
+        state_accessor: Some(runtime.clone()),
+        flow_runner: Some(flow_runner),
+        registered_steps: None,
+        flow: flow.name.clone(),
+        step: None,
+    };
+    let graph = Arc::new(FlowGraph::build_with_triggers(
+        flow, registry, &ctx, &triggers,
+    )?);
+    runtime.seed(crate::persist::initial_states(
+        &graph,
+        runtime.run_id.as_str(),
+        &config,
+    ));
+    let executor = Arc::new(Executor::new(graph, ctx.vars.clone(), config, runtime));
     let admin_task = match options.admin {
         Some(addr) => {
             let state = Arc::new(crate::admin::AdminState {
@@ -175,20 +193,30 @@ pub async fn approve_pending(
     store: Arc<dyn StateStore>,
     step: Option<&str>,
 ) -> Result<usize> {
-    let ctx = BuildContext {
-        vars: flow.vars.clone().into_iter().collect(),
-        bus: None,
-        flow: flow.name.clone(),
-        step: None,
-    };
-    let graph = Arc::new(FlowGraph::build(flow, registry, &ctx)?);
     let config = ExecutorConfig {
         store: Some(store),
         resume: true,
         checkpoint_every: None,
         pause: None,
     };
-    let executor = Arc::new(Executor::new(graph, ctx.vars.clone(), config));
+    let runtime = crate::persist::RuntimeState::new(&flow.name, &config);
+    let flow_runner = Arc::new(crate::RuntimeFlowRunner::new(registry.clone(), None, None));
+    let ctx = BuildContext {
+        vars: flow.vars.clone().into_iter().collect(),
+        bus: None,
+        state_accessor: Some(runtime.clone()),
+        flow_runner: Some(flow_runner),
+        registered_steps: None,
+        flow: flow.name.clone(),
+        step: None,
+    };
+    let graph = Arc::new(FlowGraph::build(flow, registry, &ctx)?);
+    runtime.seed(crate::persist::initial_states(
+        &graph,
+        runtime.run_id.as_str(),
+        &config,
+    ));
+    let executor = Arc::new(Executor::new(graph, ctx.vars.clone(), config, runtime));
     let mut approved = 0usize;
     for (id, node) in &executor.graph().nodes {
         if !matches!(node.step, NodeStep::Control(ControlNode::Approve { .. })) {

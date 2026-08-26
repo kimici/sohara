@@ -23,14 +23,21 @@ $ sohara run flow.yaml
 Flow 'basic' finished: processed=2, filtered=1, errors=0, waiting=0, duplicates=0
 ```
 
+也可以直接用 JS 定义 flow：
+
+```console
+$ sohara run flow.js
+$ sohara serve flow.js
+```
+
 ### 1.2 命令一览
 
 | 命令 | 说明 |
 |---|---|
 | `sohara init [dir]` | 生成 `flow.yaml` + `data/input.csv` 骨架 |
-| `sohara run <flow.yaml> [--resume] [--verbose] [--history PATH]` | 一次性运行；`--resume` 复用存储的 run_id（幂等续跑）；`--verbose` 打印步骤统计表；每次运行写入 `.sohara/history.jsonl`（失败运行记 `status=error`） |
-| `sohara serve <flow.yaml> [--admin ADDR] [--admin-token T] [--resume] [--relay URL] [--relay-token T]` | 常驻运行触发器（http/cron/queue）直至 Ctrl+C/SIGTERM；停机时优雅排水并写一条历史 |
-| `sohara approve <flow.yaml> [--step ID]` | 放行 `approve` 步骤停放的记录 |
+| `sohara run <flow.(yaml\|js)> [--resume] [--verbose] [--history PATH]` | 一次性运行；`--resume` 复用存储的 run_id（幂等续跑）；`--verbose` 打印步骤统计表；每次运行写入 `.sohara/history.jsonl`（失败运行记 `status=error`） |
+| `sohara serve <flow.(yaml\|js)> [--admin ADDR] [--admin-token T] [--resume] [--relay URL] [--relay-token T]` | 常驻运行触发器（http/cron/queue）直至 Ctrl+C/SIGTERM；停机时优雅排水并写一条历史 |
+| `sohara approve <flow.(yaml\|js)> [--step ID]` | 放行 `approve` 步骤停放的记录 |
 | `sohara history [--limit N] [--history PATH]` | 查看运行历史 |
 
 ### 1.3 单机 Dashboard
@@ -63,6 +70,7 @@ steps:
 
 - `source/sink: file`（csv/json/jsonl）、`source/sink: db`（SQLite，`{path, query}` / `{path, table}`）、`source/sink: http`（`{url, method?, headers?, poll_interval?}`）、`source/transform/sink: script`（QuickJS，`{script | inline, entry?, allow?, db?}`）。
 - `script` 宿主桥：`sohara.{log,env,var,now,uuid,record,sleep,notify,file,http,db,require}`、`ctx.{step,flow,state,emit,checkpoint,correlation_id}`、Record 方法（`get/set/has/unset`、`id/timestamp/metadata`）；权限：`file.write`/`db`/`http`/`notify` 需 `allow` 列表。完整契约见 [`docs/design/quickjs-api.md`](design/quickjs-api.md)。
+- JS 也可以直接定义整条 flow：`module.exports = sohara.flow(\"x\")...build()`；CLI 会自动求值 `.js` flow 文件。脚本内还支持 `sohara.flow.run(config)` 运行子 flow，并返回 `{ stop() }` handle。
 - 复用片段：`imports: [parts/common.yaml]` + 模板 `templates:` + 步骤 `use: <模板名>`（嵌套 config 深合并）。
 - 完整示例索引见 [`examples/README.md`](../examples/README.md)。
 

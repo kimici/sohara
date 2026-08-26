@@ -17,9 +17,10 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 sohara-core = { path = "../sohara-core" }
 sohara-config = { path = "../sohara-config" }
+sohara-persistence = { path = "../sohara-persistence" }
 sohara-triggers = { path = "../sohara-triggers" }
 
 [dev-dependencies]
 async-trait = "0.1"
 sohara-builtins = { path = "../sohara-builtins" }
-sohara-persistence = { path = "../sohara-persistence" }
+sohara-js = { path = "../sohara-js" }

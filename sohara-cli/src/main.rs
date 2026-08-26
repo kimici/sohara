@@ -31,7 +31,7 @@ struct Cli {
 enum Command {
     /// Run a flow once and print statistics
     Run {
-        /// Path to the flow YAML file
+        /// Path to the flow YAML or JS file
         flow: PathBuf,
         /// Extension manifest file or directory (repeatable)
         #[arg(long, value_name = "PATH")]
@@ -48,7 +48,7 @@ enum Command {
     },
     /// Serve a flow with its triggers until Ctrl+C
     Serve {
-        /// Path to the flow YAML file
+        /// Path to the flow YAML or JS file
         flow: PathBuf,
         /// Extension manifest file or directory (repeatable)
         #[arg(long, value_name = "PATH")]
@@ -78,7 +78,7 @@ enum Command {
     },
     /// Approve parked records of a flow's approve steps
     Approve {
-        /// Path to the flow YAML file
+        /// Path to the flow YAML or JS file
         flow: PathBuf,
         /// Extension manifest file or directory (repeatable)
         #[arg(long, value_name = "PATH")]
@@ -218,6 +218,19 @@ fn registry_and_extensions(
     Ok((registry, host))
 }
 
+fn load_flow(path: &Path) -> Result<sohara_config::FlowConfig> {
+    match path.extension().and_then(std::ffi::OsStr::to_str) {
+        Some("js") => {
+            let value = sohara_js::evaluate_flow_file(path).map_err(|error| {
+                anyhow!("failed to evaluate JS flow '{}': {error}", path.display())
+            })?;
+            sohara_config::FlowConfig::from_json_value(value, path.parent())
+                .map_err(|error| anyhow!("invalid JS flow '{}': {error}", path.display()))
+        }
+        _ => sohara_config::FlowConfig::load(path).map_err(Into::into),
+    }
+}
+
 fn builtin_extension_paths() -> Vec<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../extensions/builtin");
     if root.exists() {
@@ -284,7 +297,7 @@ async fn run_flow(
     history: Option<&Path>,
 ) -> Result<()> {
     let started = chrono::Utc::now().to_rfc3339();
-    let config = sohara_config::FlowConfig::load(flow)?;
+    let config = load_flow(flow)?;
     let (registry, host) = registry_and_extensions(extensions)?;
     let store = store_for(&config, &host)?;
     let history = history.unwrap_or(default_history_path());
@@ -313,7 +326,7 @@ async fn run_flow(
 }
 
 async fn serve_flow(flow: &Path, flags: ServeFlags, verbose: bool) -> Result<()> {
-    let config = sohara_config::FlowConfig::load(flow)?;
+    let config = load_flow(flow)?;
     let (registry, host) = registry_and_extensions(&flags.extensions)?;
     if config.event_bus.is_some()
         && config
@@ -354,7 +367,7 @@ async fn serve_flow(flow: &Path, flags: ServeFlags, verbose: bool) -> Result<()>
 }
 
 async fn approve_flow(flow: &Path, extensions: &[PathBuf], step: Option<&str>) -> Result<()> {
-    let config = sohara_config::FlowConfig::load(flow)?;
+    let config = load_flow(flow)?;
     let (registry, host) = registry_and_extensions(extensions)?;
     let store = store_for(&config, &host)?.ok_or_else(|| {
         anyhow!("flow has no checkpoint store; declare checkpoint.store to use approve")

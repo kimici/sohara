@@ -1,7 +1,9 @@
 //! Component registry: maps `(kind, type)` to a step factory
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,6 +54,18 @@ pub struct StepMeta {
     pub step_type: String,
 }
 
+/// One script-registered step definition collected during flow build.
+#[derive(Debug, Clone)]
+pub struct RegisteredStep {
+    pub kind: StepKind,
+    pub step_type: String,
+    pub handler_name: String,
+    pub source: String,
+    pub script_dir: Option<PathBuf>,
+    pub permissions: Vec<String>,
+    pub db: Option<String>,
+}
+
 /// Context available to factories at build time.
 #[derive(Clone, Default)]
 pub struct BuildContext {
@@ -59,6 +73,12 @@ pub struct BuildContext {
     pub vars: serde_json::Map<String, Value>,
     /// Shared event bus (present in `serve` mode).
     pub bus: Option<std::sync::Arc<dyn crate::bus::EventBus>>,
+    /// Shared runtime step-state bridge (present in runtime execution).
+    pub state_accessor: Option<std::sync::Arc<dyn crate::store::StateAccessor>>,
+    /// Shared runtime sub-flow runner (present in runtime execution).
+    pub flow_runner: Option<std::sync::Arc<dyn crate::FlowRunner>>,
+    /// Script-registered step definitions collected during a pre-build pass.
+    pub registered_steps: Option<Arc<Mutex<Vec<RegisteredStep>>>>,
     /// Flow name, set by the runtime/serve entry points.
     pub flow: String,
     /// Step identity, set per step by the builder.
@@ -71,7 +91,7 @@ pub trait StepFactory: Send + Sync {
 }
 
 /// Registry of step factories keyed by `(kind, type)`.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ComponentRegistry {
     factories: HashMap<(StepKind, String), Arc<dyn StepFactory>>,
 }

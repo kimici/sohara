@@ -90,7 +90,9 @@ function transform(record, ctx) {
 | `sohara.file.read(path)` / `sohara.file.write(path, content)` | — | 已实现 | 文件 I/O；`read` 恒允许，`write` 需 `allow: [file.write]` |
 | `sohara.http.request(opts)` | `(opts) => Response` | 已实现 | 阻塞 HTTP 请求（需 `allow: [http]`；在独立 OS 线程执行，避免 tokio 上下文冲突） |
 | `sohara.db.query(sql, params?)` | `(string, array?) => object[]` | 已实现 | SQLite 查询（需 `allow: [db]` + `db` 路径；阻塞） |
-| `sohara.registerStep(kind, type, handler)` | `(string, string, function)` | 延后 | 注册自定义步骤（见 §8） |
+| `sohara.registerStep(kind, type, handler)` | `(string, string, function)` | 已实现 | 注册 flow-local 自定义步骤（见 §8） |
+| `sohara.flow(name)` | `(string) => FlowBuilder` | 已实现（D1 部分） | 用 JS 构建整条 flow；可直接 `module.exports = sohara.flow(...).build()` 供 CLI `run/serve/approve` |
+| `sohara.flow.run(config)` | `(object) => { stop() }` | 已实现（D2 首批） | 在脚本里直接运行子 flow；无 trigger 的子 flow 同步完成，带 trigger 的子 flow 立即返回 stop handle |
 | `sohara.require(path)` | `(string) => any` | 已实现 | 加载相对模块（同全局 `require`，见 §6） |
 
 ```js
@@ -141,16 +143,16 @@ function transform(record, ctx) {
 |---|---|---|---|
 | `ctx.step` | `{ id, name, kind, type }` | 已实现 | 当前步骤元信息（来自构建期 `StepMeta`） |
 | `ctx.flow` | `{ name, version }` | 已实现 | 流程元信息（`version` 恒为 `"1"`） |
-| `ctx.state` | object | 已实现 | 步骤累加状态，可读写；**本版为进程内 per-step 内存**（跨记录共享；`__state_sync` 在每次入口返回后回写） |
+| `ctx.state` | object | 已实现 | 步骤累加状态，可读写；脚本上下文读写的是运行时 `Executor.states` 的同一份权威状态，`__state_sync` 在每次入口返回后回写到运行时内存 |
 | `ctx.log(level?, ...msg)` | function | 已实现 | 等价 `sohara.log` |
 | `ctx.fail(msg?)` | function | 已实现 | 抛出步骤失败（进入错误策略） |
 | `ctx.emit(record)` | function | 已实现 | 产出额外记录：transform 的 `Pass` + 发射 → `Expand(pass + emitted)`；`Filtered` + 发射 → `Expand(emitted)`；`Expand` 追加 |
-| `ctx.checkpoint()` | function | 已实现（no-op） | 请求一次 checkpoint；本版仅 debug 日志，持久化延后 |
+| `ctx.checkpoint()` | function | 已实现 | 请求一次 checkpoint；会把当前运行中的所有步骤状态刷入 `StateStore`（若未配置 store，则为无副作用调用） |
 | `ctx.env(name, fallback?)` | function | 已实现 | 读环境变量（等价 `sohara.env`） |
 | `ctx.var(name, fallback?)` | function | 已实现 | 读流程变量 |
 | `ctx.correlation_id` | string | 已实现 | 本次调用关联 id（每次调用生成 UUID v4） |
 
-**状态持久化约定**：`ctx.state` 只接受 JSON 可序列化对象；脚本返回后运行时统一回写。**checkpoint 持久化（重启恢复）为延后项**——当前 `ctx.state` 仅存在于进程内存，serve 重启即清空。
+**状态持久化约定**：`ctx.state` 只接受 JSON 可序列化对象；脚本返回后运行时统一回写到 `Executor.states`。持久化采用 **checkpoint 节流模型**：`ctx.checkpoint()` 或 flow 的 `checkpoint.every` 会把内存状态刷到 `StateStore`；若以 `--resume` 重启，同一 flow/run id 会从 store 恢复该步骤状态。
 
 ---
 
@@ -203,7 +205,7 @@ function transform(record, ctx) {
 
 ## 8. 步骤注册 `sohara.registerStep`
 
-> 状态：**延后，未实现**（保持设计）。当前自定义步骤一律走 Rust 库注册（`ComponentRegistry`）。
+> 状态：**已实现（per-flow / build-time）**。脚本可在 flow 构建阶段注册 flow-local 的 `source` / `transform` / `sink` 步骤类型。
 
 允许脚本内注册自定义 `(kind, type)` 步骤，等价于向 `ComponentRegistry` 动态扩展（见 `redesign-and-roadmap.md` §2.6）：
 
@@ -214,13 +216,56 @@ sohara.registerStep("transform", "slugify", function(record, ctx) {
 });
 ```
 
-- 注册作用域：**仅当前脚本上下文**（步骤内隔离，不共享可变全局）；跨流程/全局扩展一律走 Rust 库（编译期注册），保持隔离与安全。
+- 注册作用域：**当前 flow**。不是“当前 JS context 临时可见”，而是 flow build 的 **第一遍脚本扫描** 收集注册，再把注册结果注入该 flow 的临时 `ComponentRegistry`，供第二遍构建使用。
 - handler 签名与 §2 入口一致，按 `kind` 调用。
-- 注册后 YAML 中即可 `type: slugify`。
+- 构建语义：所有 `type: script` 步骤会先执行一次**顶层脚本**（不调用 entry），通过 `sohara.registerStep(...)` 收集注册；之后才构建普通 YAML 步骤。因此，即使 `type: slugify` 的 YAML 步骤写在注册脚本之前，也能解析成功。
+- 隔离性：注册只在当前 flow 的临时 registry 中生效，不污染全局 registry；跨 flow / 全局扩展仍走 Rust 注册或 stdio extension manifest。
+- 当前限制：仅支持注册 `source` / `transform` / `sink`；不支持 `control`。YAML 步骤自身的 config 不会额外注入到 handler 参数中，handler 仍只接收 `(record, ctx)` / `(ctx)`。
 
 ---
 
 ## 9. 示例
+
+### 9.0 JS 定义整条 flow
+
+```js
+module.exports = sohara.flow("js-flow")
+  .source("in", "inline", { records: [{ name: "Hello World" }] })
+  .transform("tag", "add_field", { field: "ok", value: true })
+  .sink("out", "file", { path: "./out.jsonl", format: "jsonl" })
+  .build();
+```
+
+保存为 `flow.js` 后，可直接：
+
+```bash
+sohara run flow.js
+sohara serve flow.js
+```
+
+`sohara.flow.save(path)` / `sohara.flow.save(config, path)` 也已实现，可把 builder 结果落盘为 YAML。
+
+`sohara.flow.run(config)` 也已实现：
+
+```js
+function transform(record, ctx) {
+  const handle = sohara.flow.run(
+    sohara.flow("child")
+      .trigger("tick", "cron", { expression: "*/1 * * * * *" })
+      .sink("out", "log", {})
+      .edge("tick", "out")
+      .build()
+  );
+  sohara.sleep(1200);
+  handle.stop();
+  return record;
+}
+```
+
+当前语义：
+- **无 trigger 的子 flow**：同步执行完成后返回 handle（`stop()` 为无副作用）
+- **带 trigger 的子 flow**：在独立 OS 线程 + tokio runtime 中启动，立即返回 `handle.stop()`
+- **父脚本上下文结束时**：若仍有未停止的子 flow，运行时会自动 cleanup
 
 ### 9.1 source 脚本（生成记录）
 
@@ -268,5 +313,5 @@ edges: [[enrich, out]]
 - **沙箱**：脚本默认只读访问 `sohara.file.read`；`sohara.file.write`、`sohara.db.query`、`sohara.http.request`、`sohara.notify` 按步骤 `allow` 权限开关启用（`file.write` / `db` / `http` / `notify`，或 `all` 全开；未授权调用抛 JS 错误进入 `on_error` 策略）。
 - **db 路径**：`sohara.db.query` 使用步骤配置的 `db` 路径（每次查询重开 SQLite 连接，无跨步骤共享连接）。
 - **资源上限**：单脚本 `timeout`（默认如 30s）、内存上限、`loop/foreach` 的 `max_iterations` 保护、禁止无限递归（由 QuickJS 栈/时间限制）。
-- **确定性**：脚本应尽量无副作用；跨记录共享状态一律经 `ctx.state`（本版进程内内存，重启清空），不依赖脚本内模块级可变全局（上下文按步骤隔离，重启后重建）。
+- **确定性**：脚本应尽量无副作用；跨记录共享状态一律经 `ctx.state`（运行时权威状态 + checkpoint 持久化），不依赖脚本内模块级可变全局（上下文按步骤隔离，重启后重建）。
 - **类型安全**：`record.set` 接受 JSON 兼容值；强类型 `schema` 下做校验（未实现）；脚本抛错 → 步骤失败 → 走 `on_error` 策略。

@@ -1,5 +1,7 @@
 //! Build a runnable pipeline from a validated flow
 
+use std::sync::{Arc, Mutex};
+
 use serde_json::Value;
 use sohara_core::{
     BuildContext, BuiltStep, ComponentRegistry, Error, Result, Sink, Source, Transform,
@@ -23,15 +25,19 @@ pub fn build_flow(flow: &FlowConfig, registry: &ComponentRegistry) -> Result<Bui
     let base = BuildContext {
         vars: flow.vars.clone().into_iter().collect(),
         bus: None,
+        state_accessor: None,
+        flow_runner: None,
+        registered_steps: None,
         flow: flow.name.clone(),
         step: None,
     };
+    let registry = prepare_registry(flow, registry, &base)?;
     let mut source = None;
     let mut transforms = Vec::new();
     let mut sinks = Vec::new();
     for step in &flow.steps {
         let ctx = step_context(&base, step);
-        match build_step(step, registry, &ctx)? {
+        match build_step(step, &registry, &ctx)? {
             BuiltStep::Source(step_source) => source = Some(step_source),
             BuiltStep::Transform(step_transform) => transforms.push(step_transform),
             BuiltStep::Sink(step_sink) => sinks.push(step_sink),
@@ -48,6 +54,45 @@ pub fn build_flow(flow: &FlowConfig, registry: &ComponentRegistry) -> Result<Bui
         transforms,
         sinks,
     })
+}
+
+/// Clone the shared registry and extend it with any flow-local script
+/// registrations discovered in a script-only pre-pass.
+pub fn prepare_registry(
+    flow: &FlowConfig,
+    registry: &ComponentRegistry,
+    base: &BuildContext,
+) -> Result<ComponentRegistry> {
+    let mut registry = registry.clone();
+    let registered_steps = Arc::new(Mutex::new(Vec::new()));
+    for step in &flow.steps {
+        if step.step_type() != "script" {
+            continue;
+        }
+        let mut ctx = step_context(base, step);
+        ctx.registered_steps = Some(registered_steps.clone());
+        let _ = build_step(step, &registry, &ctx)?;
+    }
+    let registered_steps = registered_steps
+        .lock()
+        .map_err(|_| Error::Runtime("registered steps collector poisoned".to_owned()))?
+        .clone();
+    for registered in registered_steps {
+        let step_type = registered.step_type.clone();
+        if registry.contains(registered.kind, &registered.step_type) {
+            return Err(Error::Config(format!(
+                "script-registered step conflicts with existing kind='{}' type='{}'",
+                registered.kind.as_str(),
+                registered.step_type
+            )));
+        }
+        registry.register(
+            registered.kind,
+            &step_type,
+            sohara_js::registered_factory(registered),
+        );
+    }
+    Ok(registry)
 }
 
 /// A per-step build context carrying the step's identity (script `ctx.step`).
