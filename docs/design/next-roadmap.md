@@ -1,7 +1,7 @@
 # Sohara Next Roadmap: Gap Closure + Ecosystem Expansion
 
-> Status: **draft v9** (implementation-aligned)
-> Date: 2026-08-17
+> Status: **draft v10** (implementation-aligned)
+> Date: 2026-11-24
 > Depends on: `redesign-and-roadmap.md` (S0–S7 complete), `distributed-plane-and-dashboard.md` (D1–D6 complete)
 > Updates: `extension-points.md` (§1 registerStep promoted to A2; §2 extension interface promoted to B)
 > Sync required on approval: `quickjs-api.md` §8 (scope change from per-context to per-flow, see A2)
@@ -22,6 +22,7 @@
 | Phase B stdio extension host | ✅ (v1 scope) | step/trigger/store/bus host + builtin sqlite/redis/zeromq + integration tests |
 | D1 JS flow builder + CLI `.js` entry | ✅ | `sohara.flow(...).build()/save()` + `sohara run/serve/approve flow.js` |
 | D2 JS sub-flow runtime | ✅ (first slice) | `sohara.flow.run(config)` + `{ stop() }` handle + `flow_run_api` integration tests |
+| C1 `sohara server` empty startup | ✅ | `tests/server.rs` (3 fail-closed auth tests) + CLI e2e (missing flag → exit 2; no/wrong token → 401; correct → 200) |
 
 ### 1.2 Current Gaps / Remaining Work
 
@@ -30,7 +31,7 @@
 | Async bridge | Still undecided | QuickJS Promise support is synchronous polling only (see A0a) |
 | stdio timeout / restart / richer error model | Partially implemented | Protocol host works, but operational policy is still thin |
 | Generic event-bus subscribe abstraction | Not unified | Current `EventBus` trait is publish-only; subscribe remains provider-specific |
-| `sohara server` / flow CRUD / restart recovery | Not implemented | Phase C not started |
+| `sohara server` / flow CRUD / restart recovery | Partial | C1 empty startup + mandatory token landed; C2 flow CRUD and C3 restart recovery not started |
 | `sohara.flow.run(...)` advanced lifecycle | Partial | D2 first slice done; timeout/restart/path semantics still thin |
 | npm SDK / dev server / scaffolding | Not implemented | Phase E not started |
 | Schema validation | Not implemented | S5 optional enhancement, deferred |
@@ -261,6 +262,8 @@ This disconnect has now been closed via `StateAccessor` injection: script state 
 **Verification**: `sohara server --addr 127.0.0.1:9530 --admin-token test` starts; `GET /admin/health` returns 200; no token → request rejected.
 
 **Complete when**: server starts empty; health + auth work; no flows loaded.
+
+**Status (2026-11-24)**: ✅ complete. `sohara-runtime/src/server.rs` provides `ServerState { token: String }` (never optional) and a fail-closed bearer middleware that reuses `admin::bearer_matches`; `tests/server.rs` covers missing/wrong/correct token. The CLI adds `sohara server --addr --admin-token --data-dir [--extensions]`: `--admin-token` is mandatory at the clap layer, extensions are loaded, `<data-dir>/flows` is created, and no flow is loaded. C2 will extend this router with `/api/flows/*` behind the same token.
 
 #### C2: Flow Management API
 
@@ -510,3 +513,4 @@ Each phase is independently deliverable. The roadmap is approved phase-by-phase 
 | v7 | 2026-08-18 | Builtin namespace policy added (`builtin-*` reserved for trusted Sohara manifests); trusted builtin sqlite/redis/zeromq extension set introduced as validation targets |
 | v8 | 2026-08-18 | Builtin direction corrected: builtin extensions are Rust executables rather than repository scripts; builtin manifests now target Rust binaries, with sqlite validated and redis/zeromq present as Rust builtin providers |
 | v9 | 2026-08-26 | Status aligned to implementation: A1/A2 complete, Phase B v1 complete, D1 complete, D2 first slice complete, remaining gaps narrowed to async bridge / server / npm / operational polish |
+| v10 | 2026-11-24 | C1 landed: `sohara server` empty startup with mandatory fail-closed token, health endpoint, data-dir bootstrap, 3 auth tests + CLI e2e; status and gap tables updated |

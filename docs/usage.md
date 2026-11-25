@@ -37,8 +37,17 @@ $ sohara serve flow.js
 | `sohara init [dir]` | 生成 `flow.yaml` + `data/input.csv` 骨架 |
 | `sohara run <flow.(yaml\|js)> [--resume] [--verbose] [--history PATH]` | 一次性运行；`--resume` 复用存储的 run_id（幂等续跑）；`--verbose` 打印步骤统计表；每次运行写入 `.sohara/history.jsonl`（失败运行记 `status=error`） |
 | `sohara serve <flow.(yaml\|js)> [--admin ADDR] [--admin-token T] [--resume] [--relay URL] [--relay-token T]` | 常驻运行触发器（http/cron/queue）直至 Ctrl+C/SIGTERM；停机时优雅排水并写一条历史 |
+| `sohara server --addr ADDR --admin-token T [--data-dir PATH] [--extensions PATH]` | 启动零配置空服务：不加载任何 flow，只开放 `/admin/health`；`--admin-token` 必填，所有端点 fail-closed（C1）。flow 管理 API（C2）与重启恢复（C3）尚未实现 |
 | `sohara approve <flow.(yaml\|js)> [--step ID]` | 放行 `approve` 步骤停放的记录 |
 | `sohara history [--limit N] [--history PATH]` | 查看运行历史 |
+
+零配置 server 启动示例（token 必填，缺失时 CLI 直接报错；无 token / 错 token 的请求一律 401）：
+
+```console
+$ sohara server --addr 127.0.0.1:9530 --admin-token test
+$ curl -H "Authorization: Bearer test" http://127.0.0.1:9530/admin/health
+{"status":"running","flows":0}
+```
 
 ### 1.3 单机 Dashboard
 

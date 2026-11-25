@@ -44,6 +44,7 @@ steps:
 |---|---|
 | `sohara run <flow.yaml> [--resume] [--verbose] [--history PATH]` | Run a flow once; `--verbose` prints per-step statistics; runs are recorded to `.sohara/history.jsonl` |
 | `sohara serve <flow.yaml> [--admin ADDR] [--admin-token T] [--resume]` | Run triggers until Ctrl+C/SIGTERM; `--admin` enables the admin API + embedded dashboard (`/admin/ui`, status/errors/approvals/history), optionally token-protected |
+| `sohara server --addr ADDR --admin-token T [--data-dir PATH]` | Start an empty zero-config server with the admin API only (no flows loaded); the token is mandatory and every endpoint fails closed |
 | `sohara approve <flow.yaml> [--step ID]` | Approve records parked by `approve` steps |
 | `sohara history [--limit N] [--history PATH]` | Show recent runs (successful and failed) |
 | `sohara init [dir]` | Scaffold `flow.yaml` + `data/input.csv` |
@@ -113,13 +114,13 @@ Every example is runnable from the repository root; see [`examples/README.md`](e
 | `sohara-persistence` | `StateStore` implementations: in-memory and atomic JSON file |
 | `sohara-io` | Connectors: minimal HTTP/1.1 client, SQLite (bundled rusqlite) |
 | `sohara-js` | QuickJS bridge + `script` source/transform/sink |
-| `sohara-cli` | `sohara` binary: run / serve / approve / history / init |
+| `sohara-cli` | `sohara` binary: run / serve / server / approve / history / init |
 | `sohara-agent` | Node agent (D2): supervises local `sohara serve` instances, heartbeat + command transport |
 | `sohara-plane` | Control plane (D3–D6): registry + reconciliation, manager API + `/ui` manager dashboard (instance matrix, lifecycle actions, routes, event history, per-instance status proxy), gateway routing, and the cross-instance relay mailbox |
 
 ## Status
 
-S0–S6 of the [roadmap](docs/design/redesign-and-roadmap.md) are implemented and verified (94 tests, clippy-clean, length-gated); S7 (docs / examples / CI / release packaging) is in progress. Single-machine by design; distribution, AI agents, and a standalone `sohara-server` are documented future extension points.
+S0–S7 of the [roadmap](docs/design/redesign-and-roadmap.md) are implemented and verified (clippy-clean, length-gated). The [next roadmap](docs/design/next-roadmap.md) has landed A1/A2, Phase B v1, D1, D2 (first slice), and C1 (`sohara server` empty startup); remaining gaps are async bridging, flow CRUD/restart recovery, and the npm ecosystem. Single-machine by design; distribution, AI agents, and dylib plugins remain documented extension points.
 
 ## Development
 

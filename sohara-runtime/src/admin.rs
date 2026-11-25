@@ -76,7 +76,7 @@ async fn auth(State(state): Admin, request: Request, next: Next) -> Response {
     }
 }
 
-fn bearer_matches(headers: &HeaderMap, token: &str) -> bool {
+pub(crate) fn bearer_matches(headers: &HeaderMap, token: &str) -> bool {
     headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())

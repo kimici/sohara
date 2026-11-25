@@ -76,6 +76,21 @@ enum Command {
         #[arg(long)]
         verbose: bool,
     },
+    /// Start an empty server with the admin API (no flows loaded)
+    Server {
+        /// Address for the admin API
+        #[arg(long, value_name = "ADDR")]
+        addr: SocketAddr,
+        /// Bearer token required on every endpoint (mandatory)
+        #[arg(long, value_name = "TOKEN")]
+        admin_token: String,
+        /// Data directory for flow definitions and runtime state
+        #[arg(long, value_name = "PATH", default_value = ".sohara/server")]
+        data_dir: PathBuf,
+        /// Extension manifest file or directory (repeatable)
+        #[arg(long, value_name = "PATH")]
+        extensions: Vec<PathBuf>,
+    },
     /// Approve parked records of a flow's approve steps
     Approve {
         /// Path to the flow YAML or JS file
@@ -145,6 +160,12 @@ async fn dispatch(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Server {
+            addr,
+            admin_token,
+            data_dir,
+            extensions,
+        } => run_server(addr, admin_token, data_dir, &extensions).await,
         Command::Approve {
             flow,
             extensions,
@@ -363,6 +384,32 @@ async fn serve_flow(flow: &Path, flags: ServeFlags, verbose: bool) -> Result<()>
     if verbose {
         println!("(step statistics are available on /admin/metrics)");
     }
+    Ok(())
+}
+
+/// Start the zero-config server: load extensions, bind the admin API, load no flows.
+async fn run_server(
+    addr: SocketAddr,
+    admin_token: String,
+    data_dir: PathBuf,
+    extensions: &[PathBuf],
+) -> Result<()> {
+    // Extensions are available for flows created later via the management API (C2).
+    let (_registry, _host) = registry_and_extensions(extensions)?;
+    // Prepare the data layout without loading any flow (C1 contract).
+    let flows_dir = data_dir.join("flows");
+    std::fs::create_dir_all(&flows_dir)?;
+
+    let state = Arc::new(sohara_runtime::ServerState {
+        token: admin_token,
+    });
+    let handle = sohara_runtime::spawn_server(addr, state).await?;
+    tracing::info!(
+        "sohara server listening on {addr} (no flows loaded, data-dir={})",
+        data_dir.display()
+    );
+    ctrl_c().await;
+    handle.abort();
     Ok(())
 }
 
