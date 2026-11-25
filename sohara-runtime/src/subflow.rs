@@ -40,45 +40,21 @@ impl FlowRunner for RuntimeFlowRunner {
         let handle_id = uuid::Uuid::new_v4().to_string();
         let store = store_for(&flow, self.extension_host.as_deref())?;
         if flow.triggers.is_empty() {
-            let registry = self.registry.clone();
-            std::thread::spawn(move || {
-                let runtime = tokio::runtime::Runtime::new().expect("subflow runtime");
-                runtime
-                    .block_on(crate::run_flow_with_store(&flow, &registry, store, false))
-                    .expect("subflow run");
-            })
-            .join()
-            .map_err(|_| sohara_core::Error::Runtime("subflow thread panicked".to_owned()))?;
+            run_finite(flow, self.registry.clone(), store)?;
             return Ok(handle_id);
         }
 
-        let registry = self.registry.clone();
-        let shared_bus = self.shared_bus.clone();
-        let extension_host = self.extension_host.clone();
-        let (stop_tx, stop_rx) = mpsc::channel::<()>();
-        let join = std::thread::spawn(move || {
-            let runtime = tokio::runtime::Runtime::new().expect("subflow runtime");
-            let bus = Arc::new(sohara_triggers::InProcessBus::new(128));
-            let options = crate::ServeOptions {
-                store,
-                shared_bus,
-                extension_host,
-                ..crate::ServeOptions::default()
-            };
-            let _ = runtime.block_on(crate::serve_with_shutdown_opts(
-                &flow,
-                &registry,
-                bus,
-                async move {
-                    let _ = tokio::task::spawn_blocking(move || stop_rx.recv()).await;
-                },
-                options,
-            ));
-        });
+        let running = spawn_serving(
+            flow,
+            self.registry.clone(),
+            self.shared_bus.clone(),
+            self.extension_host.clone(),
+            store,
+        );
         self.running
             .lock()
             .expect("subflow map poisoned")
-            .insert(handle_id.clone(), RunningFlow { stop_tx, join });
+            .insert(handle_id.clone(), running);
         Ok(handle_id)
     }
 
@@ -98,6 +74,51 @@ impl FlowRunner for RuntimeFlowRunner {
             .map_err(|_| sohara_core::Error::Runtime("subflow thread panicked".to_owned()))?;
         Ok(())
     }
+}
+
+fn run_finite(
+    flow: sohara_config::FlowConfig,
+    registry: ComponentRegistry,
+    store: Option<Arc<dyn StateStore>>,
+) -> Result<()> {
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().expect("subflow runtime");
+        runtime
+            .block_on(crate::run_flow_with_store(&flow, &registry, store, false))
+            .expect("subflow run");
+    })
+    .join()
+    .map_err(|_| sohara_core::Error::Runtime("subflow thread panicked".to_owned()))
+}
+
+fn spawn_serving(
+    flow: sohara_config::FlowConfig,
+    registry: ComponentRegistry,
+    shared_bus: Option<Arc<dyn EventBus>>,
+    extension_host: Option<Arc<crate::StdioExtensionHost>>,
+    store: Option<Arc<dyn StateStore>>,
+) -> RunningFlow {
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let join = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().expect("subflow runtime");
+        let bus = Arc::new(sohara_triggers::InProcessBus::new(128));
+        let options = crate::ServeOptions {
+            store,
+            shared_bus,
+            extension_host,
+            ..crate::ServeOptions::default()
+        };
+        let _ = runtime.block_on(crate::serve_with_shutdown_opts(
+            &flow,
+            &registry,
+            bus,
+            async move {
+                let _ = tokio::task::spawn_blocking(move || stop_rx.recv()).await;
+            },
+            options,
+        ));
+    });
+    RunningFlow { stop_tx, join }
 }
 
 fn store_for(

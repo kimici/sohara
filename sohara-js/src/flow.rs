@@ -24,17 +24,7 @@ pub fn evaluate_flow_file(path: &Path) -> Result<Value> {
     context
         .eval(include_str!("../assets/preamble.js"))
         .map_err(|error| js_error("quickjs preamble", &error))?;
-    let wrapped = format!(
-        r#"(function() {{
-            var __unset = {{}};
-            var module = {{ exports: __unset }};
-            var exports = {{}};
-            globalThis.__lastBuiltFlow = undefined;
-            {}
-            return module.exports !== __unset ? module.exports : globalThis.__lastBuiltFlow;
-        }})()"#,
-        source
-    );
+    let wrapped = wrap_flow_source(&source);
     let result = context
         .eval(&wrapped)
         .map_err(|error| js_error("js flow eval", &error))?;
@@ -45,6 +35,22 @@ pub fn evaluate_flow_file(path: &Path) -> Result<Value> {
         )),
         other => Ok(js_to_value(&other)),
     }
+}
+
+/// Wrap the user script so that either `module.exports` or the
+/// `__lastBuiltFlow` global set by the preamble becomes the flow value.
+fn wrap_flow_source(source: &str) -> String {
+    format!(
+        r#"(function() {{
+            var __unset = {{}};
+            var module = {{ exports: __unset }};
+            var exports = {{}};
+            globalThis.__lastBuiltFlow = undefined;
+            {}
+            return module.exports !== __unset ? module.exports : globalThis.__lastBuiltFlow;
+        }})()"#,
+        source
+    )
 }
 
 fn register_flow_callbacks(context: &Context, script_dir: PathBuf) -> Result<()> {

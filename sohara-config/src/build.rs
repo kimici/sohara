@@ -22,15 +22,7 @@ pub struct BuiltFlow {
 /// Returns a config error naming the failing step when a factory rejects the
 /// config, the `(kind, type)` pair is unknown, or a control step appears.
 pub fn build_flow(flow: &FlowConfig, registry: &ComponentRegistry) -> Result<BuiltFlow> {
-    let base = BuildContext {
-        vars: flow.vars.clone().into_iter().collect(),
-        bus: None,
-        state_accessor: None,
-        flow_runner: None,
-        registered_steps: None,
-        flow: flow.name.clone(),
-        step: None,
-    };
+    let base = base_context(flow);
     let registry = prepare_registry(flow, registry, &base)?;
     let mut source = None;
     let mut transforms = Vec::new();
@@ -54,6 +46,19 @@ pub fn build_flow(flow: &FlowConfig, registry: &ComponentRegistry) -> Result<Bui
         transforms,
         sinks,
     })
+}
+
+/// Build-context shared by the pre-pass and the step-building pass.
+fn base_context(flow: &FlowConfig) -> BuildContext {
+    BuildContext {
+        vars: flow.vars.clone().into_iter().collect(),
+        bus: None,
+        state_accessor: None,
+        flow_runner: None,
+        registered_steps: None,
+        flow: flow.name.clone(),
+        step: None,
+    }
 }
 
 /// Clone the shared registry and extend it with any flow-local script

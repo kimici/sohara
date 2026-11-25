@@ -1,36 +1,47 @@
 ---
 name: worklog
-description: Record completed logical workspace changes as traceable daily log entries and maintain a current workstate snapshot. Use after a logical change that edits, creates, deletes, or reconfigures workspace files. Also use when the user asks to check progress, review recent changes, or see what is planned next.
+description: Record completed logical workspace changes with git commits and GitHub Pull Requests, and keep only a focused workstate before changes are committed or synced. Use after a logical change that edits, creates, deletes, or reconfigures workspace files, or when the user asks about progress, recent changes, or plans.
 ---
 
 # Worklog
 
-After each completed logical workspace change, record what changed, why, and what remains current.
+The durable worklog is version-control history, not a per-day file. Git
+commits record individual completed changes; a GitHub Pull Request is the
+reviewable, aggregated record of a body of work. Before anything is
+committed or synced, keep only a compact, focused workstate.
 
 ## Rules
 
-- Follow an existing repository worklog convention when it is explicit. Otherwise use the default convention below.
-- Create one entry per logical change, not per command or individual file edit. Keep entries concise.
-- Store default entries in one daily file: `.agents/worklog/YYYY-MM-DD.md`. Append same-day entries to that file; do not create numbered or rolling same-day files.
-- Before writing every entry, run `date '+%F %T %Z'`. Use the returned local calendar date for the filename and entry timestamp.
-- Compare the returned date with the current log filename. If it differs, start a new daily file; never append across dates or add a suffix because the session continues.
-- Log what changed and why, not intermediate attempts or command transcripts. Link relevant decisions, evidence, or related entries when they help recovery.
-- Maintain `.agents/workstate.md` as a compact current snapshot, not an append-only history.
-- Use version history where available for detailed change history. Keep the daily log focused on operational continuity.
-- Apply one convention consistently throughout the repository.
+- Follow the repository's explicit convention (see `AGENTS.md`) when present.
+- **Never** create or append `.agents/worklog/YYYY-MM-DD.md` daily files. Git
+  history is the change record; historical daily files are unmaintained
+  archives, not the live log.
+- Work on a feature branch. Make **one commit per completed logical change**,
+  not per command or per file edit, and only after that increment's acceptance
+  checks pass.
+- Write a descriptive commit subject and a body that records what changed,
+  why, and the verification evidence. This replaces the old daily entry.
+- For a body of work, use a GitHub Pull Request (`gh pr create` / `gh pr
+  edit`) as the aggregated worklog: the PR description carries the summary,
+  the increments, the evidence, and the remaining gaps. Link the PR from
+  status reports.
+- **Uncommitted work**: keep `.agents/workstate.md` as a compact snapshot of
+  ONLY the current focus — what is being worked on, the immediate next step,
+  and any blocker. No timelines, no historical sections, no append-only
+  history, no duplicate of commit/PR content. Replace stale content instead
+  of preserving it; once a change is committed, move the focus to the next
+  increment.
+- Keep entries concise; do not log intermediate attempts or command
+  transcripts.
 
-## Entry and workstate content
+## Progress questions
 
-Each daily entry records a timestamp, a concise change summary, its reason, and useful references or remaining gaps.
-
-Keep the workstate limited to current focus, current status or blocker, recent completed changes, next steps, and useful references. Replace stale content instead of preserving a timeline there.
-
-## Bootstrapping
-
-If no explicit repository convention exists, create `.agents/worklog/` as needed and use this skill's default paths and entry content. Record a different durable convention in the repository's agent-facing context entry point only when the repository needs one shared across future sessions.
-
-If the `date` command is unavailable or its timezone cannot be determined, report that limitation instead of guessing the log date.
+When asked about progress, recent changes, or what is planned next, read
+`git log`, `gh pr view`, and the focused workstate — do not look for daily
+log files.
 
 ## Output
 
-In the user's language, state which log or workstate files were created or updated, the logical change recorded, and any unavailable timestamp, reference, or convention information.
+In the user's language, state which commit (and PR, if any) records the
+change, what the focused workstate now says, and any verification evidence or
+remaining gap.

@@ -119,6 +119,28 @@ edges: [[in, gate], [gate, out]]
     assert_eq!(records.len(), 1);
 }
 
+const SCRIPT_STATE_FLOW_FIRST: &str = r#"
+name: script-state
+version: "1"
+checkpoint: { every: 1 }
+steps:
+  - { id: in, kind: source, type: inline, config: { records: [{n: 1}, {n: 2}, {n: 3}] } }
+  - { id: js, kind: transform, type: script, config: { inline: "function transform(record, ctx) { ctx.state.count = (ctx.state.count || 0) + 1; record.count = ctx.state.count; ctx.checkpoint(); return record; }" } }
+  - { id: out, kind: sink, type: probe }
+edges: [[in, js], [js, out]]
+"#;
+
+const SCRIPT_STATE_FLOW_SECOND: &str = r#"
+name: script-state
+version: "1"
+checkpoint: { every: 1 }
+steps:
+  - { id: in, kind: source, type: inline, config: { records: [{n: 4}, {n: 5}] } }
+  - { id: js, kind: transform, type: script, config: { inline: "function transform(record, ctx) { ctx.state.count = (ctx.state.count || 0) + 1; record.count = ctx.state.count; return record; }" } }
+  - { id: out, kind: sink, type: probe }
+edges: [[in, js], [js, out]]
+"#;
+
 #[tokio::test]
 async fn script_ctx_state_restores_on_resume() {
     let store = Arc::new(MemoryStore::new());
@@ -128,36 +150,11 @@ async fn script_ctx_state_restores_on_resume() {
         "probe",
         common::probe_factory(records.clone()),
     )]);
-    let first = sohara_config::FlowConfig::from_yaml_str(
-        r#"
-name: script-state
-version: "1"
-checkpoint: { every: 1 }
-steps:
-  - { id: in, kind: source, type: inline, config: { records: [{n: 1}, {n: 2}, {n: 3}] } }
-  - { id: js, kind: transform, type: script, config: { inline: "function transform(record, ctx) { ctx.state.count = (ctx.state.count || 0) + 1; record.count = ctx.state.count; ctx.checkpoint(); return record; }" } }
-  - { id: out, kind: sink, type: probe }
-edges: [[in, js], [js, out]]
-"#,
-    )
-    .unwrap();
+    let first = sohara_config::FlowConfig::from_yaml_str(SCRIPT_STATE_FLOW_FIRST).unwrap();
     run_flow_with_store(&first, &registry, Some(store.clone()), false)
         .await
         .unwrap();
-
-    let second = sohara_config::FlowConfig::from_yaml_str(
-        r#"
-name: script-state
-version: "1"
-checkpoint: { every: 1 }
-steps:
-  - { id: in, kind: source, type: inline, config: { records: [{n: 4}, {n: 5}] } }
-  - { id: js, kind: transform, type: script, config: { inline: "function transform(record, ctx) { ctx.state.count = (ctx.state.count || 0) + 1; record.count = ctx.state.count; return record; }" } }
-  - { id: out, kind: sink, type: probe }
-edges: [[in, js], [js, out]]
-"#,
-    )
-    .unwrap();
+    let second = sohara_config::FlowConfig::from_yaml_str(SCRIPT_STATE_FLOW_SECOND).unwrap();
     let report = run_flow_with_store(&second, &registry, Some(store.clone()), true)
         .await
         .unwrap();

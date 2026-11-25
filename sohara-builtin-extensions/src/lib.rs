@@ -61,30 +61,35 @@ pub fn run_loop(mut handle: impl FnMut(JsonRpcRequest) -> Result<Value>) -> Resu
         let line = line?;
         let request: JsonRpcRequest = serde_json::from_str(&line)?;
         let id = request.id;
-        match handle(request) {
-            Ok(result) => {
-                let response = JsonRpcSuccess {
-                    jsonrpc: "2.0",
-                    id,
-                    result: &result,
-                };
-                serde_json::to_writer(&mut stdout, &response)?;
-            }
-            Err(error) => {
-                let message = error.to_string();
-                let response = JsonRpcFailure {
-                    jsonrpc: "2.0",
-                    id,
-                    error: JsonRpcError {
-                        code: -32000,
-                        message: &message,
-                    },
-                };
-                serde_json::to_writer(&mut stdout, &response)?;
-            }
-        }
+        write_response(&mut stdout, id, handle(request))?;
         stdout.write_all(b"\n")?;
         stdout.flush()?;
+    }
+    Ok(())
+}
+
+fn write_response(stdout: &mut io::Stdout, id: u64, outcome: Result<Value>) -> Result<()> {
+    match outcome {
+        Ok(result) => {
+            let response = JsonRpcSuccess {
+                jsonrpc: "2.0",
+                id,
+                result: &result,
+            };
+            serde_json::to_writer(stdout, &response)?;
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let response = JsonRpcFailure {
+                jsonrpc: "2.0",
+                id,
+                error: JsonRpcError {
+                    code: -32000,
+                    message: &message,
+                },
+            };
+            serde_json::to_writer(stdout, &response)?;
+        }
     }
     Ok(())
 }
