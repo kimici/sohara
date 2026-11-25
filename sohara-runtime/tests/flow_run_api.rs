@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 use sohara_core::FlowRunner;
-use sohara_runtime::RuntimeFlowRunner;
 use sohara_runtime::run_flow;
+use sohara_runtime::RuntimeFlowRunner;
 
 use common::registry;
 
@@ -28,19 +28,7 @@ async fn flow_run_executes_finite_subflow() {
         "probe",
         common::probe_factory(records.clone()),
     )]);
-    let flow = sohara_config::FlowConfig::from_yaml_str(&format!(
-        r#"
-name: parent-run
-version: "1"
-steps:
-  - {{ id: in, kind: source, type: inline, config: {{ records: [{{ n: 1 }}] }} }}
-  - {{ id: js, kind: transform, type: script, config: {{ inline: "function transform(record, ctx) {{ sohara.flow.run(sohara.flow('child').source('src', 'inline', {{ records: [{{ child: 42 }}] }}).sink('out', 'file', {{ path: '{}' , format: 'jsonl' }}).build()); return record; }}" }} }}
-  - {{ id: out, kind: sink, type: probe }}
-edges: [[in, js], [js, out]]
-"#,
-        output.display()
-    ))
-    .unwrap();
+    let flow = finite_subflow(&output);
     let stats = run_flow(&flow, &registry).await.unwrap();
     assert_eq!(stats.processed, 1);
     let output = std::fs::read_to_string(output).unwrap();
@@ -92,27 +80,45 @@ fn runtime_flow_runner_accepts_triggered_flow_json() {
     std::fs::create_dir_all(&dir).unwrap();
     let output = dir.join("runner.jsonl");
     let runner = RuntimeFlowRunner::new(registry(Vec::new()), None, None);
-    let handle = runner
-        .run(json!({
-            "name": "runner-child",
-            "version": "1",
-            "triggers": [{
-                "id": "tick",
-                "type": "cron",
-                "config": { "expression": "*/1 * * * * *" }
-            }],
-            "steps": [{
-                "id": "out",
-                "kind": "sink",
-                "type": "file",
-                "config": { "path": output, "format": "jsonl" }
-            }],
-            "edges": [{ "from": "tick", "to": "out" }]
-        }))
-        .unwrap();
+    let handle = runner.run(triggered_flow_json(&output)).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(1500));
     runner.stop(&handle).unwrap();
     let output = std::fs::read_to_string(output).unwrap();
     assert!(!output.trim().is_empty(), "expected cron output");
     std::fs::remove_dir_all(dir).ok();
+}
+
+fn finite_subflow(output: &std::path::Path) -> sohara_config::FlowConfig {
+    sohara_config::FlowConfig::from_yaml_str(&format!(
+        r#"
+name: parent-run
+version: "1"
+steps:
+  - {{ id: in, kind: source, type: inline, config: {{ records: [{{ n: 1 }}] }} }}
+  - {{ id: js, kind: transform, type: script, config: {{ inline: "function transform(record, ctx) {{ sohara.flow.run(sohara.flow('child').source('src', 'inline', {{ records: [{{ child: 42 }}] }}).sink('out', 'file', {{ path: '{}' , format: 'jsonl' }}).build()); return record; }}" }} }}
+  - {{ id: out, kind: sink, type: probe }}
+edges: [[in, js], [js, out]]
+"#,
+        output.display()
+    ))
+    .unwrap()
+}
+
+fn triggered_flow_json(output: &std::path::Path) -> serde_json::Value {
+    json!({
+        "name": "runner-child",
+        "version": "1",
+        "triggers": [{
+            "id": "tick",
+            "type": "cron",
+            "config": { "expression": "*/1 * * * * *" }
+        }],
+        "steps": [{
+            "id": "out",
+            "kind": "sink",
+            "type": "file",
+            "config": { "path": output, "format": "jsonl" }
+        }],
+        "edges": [{ "from": "tick", "to": "out" }]
+    })
 }

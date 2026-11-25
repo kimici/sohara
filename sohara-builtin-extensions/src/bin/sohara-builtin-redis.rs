@@ -14,49 +14,55 @@ fn handle(request: JsonRpcRequest) -> Result<Value> {
             event_bus: true,
             ..Capabilities::default()
         })),
-        "state.load" => {
-            let config = config(&request.params)?;
-            let key = key(config, request.params.get("key"))?;
-            let mut conn = connection(config)?;
-            let value: Option<String> = conn.get(key)?;
-            match value {
-                Some(value) => {
-                    Ok(json!({ "found": true, "value": serde_json::from_str::<Value>(&value)? }))
-                }
-                None => Ok(json!({ "found": false, "value": Value::Null })),
-            }
-        }
-        "state.save" => {
-            let config = config(&request.params)?;
-            let key = key(config, request.params.get("key"))?;
-            let value = request
-                .params
-                .get("value")
-                .ok_or_else(|| anyhow!("missing value"))?;
-            let mut conn = connection(config)?;
-            let _: () = conn.set(key, serde_json::to_string(value)?)?;
-            Ok(json!({}))
-        }
-        "state.delete" => {
-            let config = config(&request.params)?;
-            let key = key(config, request.params.get("key"))?;
-            let mut conn = connection(config)?;
-            let _: usize = conn.del(key)?;
-            Ok(json!({}))
-        }
-        "bus.publish" => {
-            let config = config(&request.params)?;
-            let topic = topic(config, request.params.get("topic"))?;
-            let payload = request
-                .params
-                .get("payload")
-                .ok_or_else(|| anyhow!("missing payload"))?;
-            let mut conn = connection(config)?;
-            let _: i64 = conn.publish(topic, serde_json::to_string(payload)?)?;
-            Ok(json!({}))
-        }
+        "state.load" => handle_load(&request.params),
+        "state.save" => handle_save(&request.params),
+        "state.delete" => handle_delete(&request.params),
+        "bus.publish" => handle_publish(&request.params),
         other => Err(anyhow!("unknown method: {other}")),
     }
+}
+
+fn handle_load(params: &Value) -> Result<Value> {
+    let config = config(params)?;
+    let key = key(config, params.get("key"))?;
+    let mut conn = connection(config)?;
+    let value: Option<String> = conn.get(key)?;
+    match value {
+        Some(value) => {
+            Ok(json!({ "found": true, "value": serde_json::from_str::<Value>(&value)? }))
+        }
+        None => Ok(json!({ "found": false, "value": Value::Null })),
+    }
+}
+
+fn handle_save(params: &Value) -> Result<Value> {
+    let config = config(params)?;
+    let key = key(config, params.get("key"))?;
+    let value = params
+        .get("value")
+        .ok_or_else(|| anyhow!("missing value"))?;
+    let mut conn = connection(config)?;
+    let _: () = conn.set(key, serde_json::to_string(value)?)?;
+    Ok(json!({}))
+}
+
+fn handle_delete(params: &Value) -> Result<Value> {
+    let config = config(params)?;
+    let key = key(config, params.get("key"))?;
+    let mut conn = connection(config)?;
+    let _: usize = conn.del(key)?;
+    Ok(json!({}))
+}
+
+fn handle_publish(params: &Value) -> Result<Value> {
+    let config = config(params)?;
+    let topic = topic(config, params.get("topic"))?;
+    let payload = params
+        .get("payload")
+        .ok_or_else(|| anyhow!("missing payload"))?;
+    let mut conn = connection(config)?;
+    let _: i64 = conn.publish(topic, serde_json::to_string(payload)?)?;
+    Ok(json!({}))
 }
 
 fn config(params: &Value) -> Result<&serde_json::Map<String, Value>> {

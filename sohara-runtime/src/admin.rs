@@ -76,12 +76,40 @@ async fn auth(State(state): Admin, request: Request, next: Next) -> Response {
     }
 }
 
-fn bearer_matches(headers: &HeaderMap, token: &str) -> bool {
-    headers
+/// Constant-time byte comparison that does not short-circuit on the first
+/// mismatch. Length inequality yields `false` (the length itself is not secret).
+fn constant_time_eq(candidate: &[u8], expected: &[u8]) -> bool {
+    if candidate.len() != expected.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (left, right) in candidate.iter().zip(expected.iter()) {
+        diff |= left ^ right;
+    }
+    diff == 0
+}
+
+/// Parse `Authorization: Bearer <token>` and compare the token in constant time.
+///
+/// The auth scheme name is matched case-insensitively per RFC 9110 §11.1. A
+/// blank configured token never matches, keeping the caller fail-closed.
+pub(crate) fn bearer_matches(headers: &HeaderMap, token: &str) -> bool {
+    if token.trim().is_empty() {
+        return false;
+    }
+    let Some(value) = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|value| value == token)
+    else {
+        return false;
+    };
+    let Some((scheme, credentials)) = value.split_once(' ') else {
+        return false;
+    };
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return false;
+    }
+    constant_time_eq(credentials.trim().as_bytes(), token.as_bytes())
 }
 
 async fn health(State(state): Admin) -> Json<Value> {

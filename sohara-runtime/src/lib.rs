@@ -14,6 +14,7 @@ mod persist;
 mod routes;
 mod runner;
 pub mod serve;
+mod server;
 mod stats;
 mod stdio_extensions;
 mod subflow;
@@ -28,6 +29,7 @@ pub use pause::PauseGate;
 pub use serve::{
     approve_pending, serve, serve_with_shutdown, serve_with_shutdown_opts, ServeOptions,
 };
+pub use server::{spawn_server, ServerState};
 pub use stats::{ExecutorConfig, RunReport, StatsSnapshot, StepStat};
 pub use stdio_extensions::{
     load_stdio_extensions, load_stdio_extensions_with_trusted, LoadedExtension, StdioExtensionHost,

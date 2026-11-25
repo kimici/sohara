@@ -14,8 +14,25 @@ async fn js_flow_file_builds_and_runs() {
     let dir = temp_dir("flow-run");
     let flow_path = dir.join("flow.js");
     let output_path = dir.join("out.jsonl");
+    write_build_flow_script(&flow_path, &output_path);
+
+    let value = sohara_js::evaluate_flow_file(&flow_path).unwrap();
+    let flow = FlowConfig::from_json_value(value, flow_path.parent()).unwrap();
+    let mut registry = ComponentRegistry::new();
+    register_builtins(&mut registry);
+    sohara_js::register_all(&mut registry);
+    let stats = run_flow(&flow, &registry).await.unwrap();
+    assert_eq!(stats.processed, 1);
+    let output = std::fs::read_to_string(output_path).unwrap();
+    assert!(output.contains("\"slug\":\"hello-world\""), "got: {output}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// Write a flow script that registers an inline slugify step and sinks to
+/// `output_path`, exercising the flow builder plus runtime registration.
+fn write_build_flow_script(flow_path: &std::path::Path, output_path: &std::path::Path) {
     std::fs::write(
-        &flow_path,
+        flow_path,
         format!(
             r#"
 module.exports = sohara.flow("js-flow")
@@ -31,17 +48,6 @@ module.exports = sohara.flow("js-flow")
         ),
     )
     .unwrap();
-
-    let value = sohara_js::evaluate_flow_file(&flow_path).unwrap();
-    let flow = FlowConfig::from_json_value(value, flow_path.parent()).unwrap();
-    let mut registry = ComponentRegistry::new();
-    register_builtins(&mut registry);
-    sohara_js::register_all(&mut registry);
-    let stats = run_flow(&flow, &registry).await.unwrap();
-    assert_eq!(stats.processed, 1);
-    let output = std::fs::read_to_string(output_path).unwrap();
-    assert!(output.contains("\"slug\":\"hello-world\""), "got: {output}");
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]

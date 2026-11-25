@@ -131,6 +131,13 @@ fn register_db_callback(context: &Context, env: &StepEnv) -> Result<()> {
 }
 
 fn register_script_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
+    register_module_callbacks(context, env)?;
+    register_flow_callbacks(context, env)?;
+    register_state_callbacks(context, env)?;
+    register_checkpoint_callback(context, env)
+}
+
+fn register_module_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
     context
         .add_callback("__require_source", {
             let env = env.clone();
@@ -145,6 +152,10 @@ fn register_script_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
             }
         })
         .map_err(|error| js_error("registerStep callback", &error))?;
+    Ok(())
+}
+
+fn register_flow_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
     context
         .add_callback("__flow_run", {
             let env = env.clone();
@@ -161,6 +172,10 @@ fn register_script_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
             move |handle_id: String| host::flow_stop(&env, handle_id)
         })
         .map_err(|error| js_error("flow.stop callback", &error))?;
+    register_flow_save_callback(context, env)
+}
+
+fn register_flow_save_callback(context: &Context, env: &StepEnv) -> Result<()> {
     context
         .add_callback("__flow_save", {
             let env = env.clone();
@@ -171,15 +186,16 @@ fn register_script_callbacks(context: &Context, env: &StepEnv) -> Result<()> {
                 host::flow_save(&env, config, path)
             }
         })
-        .map_err(|error| js_error("flow.save callback", &error))?;
-    register_state_callbacks(context, env)?;
+        .map_err(|error| js_error("flow.save callback", &error))
+}
+
+fn register_checkpoint_callback(context: &Context, env: &StepEnv) -> Result<()> {
     context
         .add_callback("__checkpoint", {
             let env = env.clone();
             move || host::checkpoint(&env)
         })
-        .map_err(|error| js_error("checkpoint callback", &error))?;
-    Ok(())
+        .map_err(|error| js_error("checkpoint callback", &error))
 }
 
 fn register_state_callbacks(context: &Context, env: &StepEnv) -> Result<()> {

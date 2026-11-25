@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod stdio;
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;

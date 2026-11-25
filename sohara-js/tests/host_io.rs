@@ -121,16 +121,14 @@ async fn host_db_query_and_permissions() {
     let dir = temp_dir("db");
     let db_str = dir.join("test.sqlite").to_string_lossy().into_owned();
     let config = json!({
-        "inline": format!(
-            r#"
-            function transform(record, ctx) {{
+        "inline": r#"
+            function transform(record, ctx) {
                 sohara.db.query("CREATE TABLE IF NOT EXISTS t (id INTEGER, name TEXT)");
                 sohara.db.query("INSERT INTO t VALUES (?, ?)", [1, "alice"]);
                 record.rows = sohara.db.query("SELECT id, name FROM t WHERE id = ?", [1]);
                 return record;
-            }}
-            "#
-        ),
+            }
+            "#,
         "allow": ["db"],
         "db": db_str,
     });

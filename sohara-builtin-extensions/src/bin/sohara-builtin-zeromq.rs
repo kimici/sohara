@@ -39,101 +39,123 @@ fn handle(state: &mut State, request: JsonRpcRequest) -> Result<Value> {
             event_bus: true,
             ..Capabilities::default()
         })),
-        "bus.publish" => {
-            let config = config(&request.params)?;
-            let topic = request
-                .params
-                .get("topic")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let payload = request
-                .params
-                .get("payload")
-                .ok_or_else(|| anyhow!("missing payload"))?;
-            ensure_pub_socket(state, config)?;
-            let message = json!({ "topic": topic, "payload": payload }).to_string();
-            let runtime = &state.runtime;
-            let socket = state
-                .pub_socket
-                .as_mut()
-                .ok_or_else(|| anyhow!("failed to initialize zeromq pub socket"))?;
-            if !state.pub_ready {
-                runtime.block_on(async { tokio::time::sleep(Duration::from_millis(300)).await });
-                state.pub_ready = true;
-            }
-            runtime.block_on(async { socket.send(message.into()).await })?;
-            Ok(json!({}))
-        }
-        "trigger.start" => {
-            let config = config(&request.params)?;
-            ensure_sub_socket(state, config)?;
-            let runtime = &state.runtime;
-            let socket = state
-                .sub_socket
-                .as_mut()
-                .ok_or_else(|| anyhow!("failed to initialize zeromq sub socket"))?;
-            runtime.block_on(async { socket.subscribe("").await })?;
-            if !state.sub_ready {
-                runtime.block_on(async { tokio::time::sleep(Duration::from_millis(300)).await });
-                state.sub_ready = true;
-            }
-            state.stopped = false;
-            Ok(json!({}))
-        }
-        "trigger.pull" => {
-            if state.stopped {
-                return Ok(json!({ "records": [], "done": true }));
-            }
-            let config = config(&request.params)?;
-            let timeout = config
-                .get("timeout_ms")
-                .and_then(Value::as_u64)
-                .unwrap_or(100);
-            let topic_filter = config.get("topic").and_then(Value::as_str).unwrap_or("");
-            ensure_sub_socket(state, config)?;
-            let runtime = &state.runtime;
-            let socket = state
-                .sub_socket
-                .as_mut()
-                .ok_or_else(|| anyhow!("failed to initialize zeromq sub socket"))?;
-            let maybe_message = runtime.block_on(async {
-                tokio::time::timeout(Duration::from_millis(timeout), socket.recv()).await
-            });
-            let message = match maybe_message {
-                Ok(Ok(message)) => message,
-                Ok(Err(error)) => return Err(error.into()),
-                Err(_) => return Ok(json!({ "records": [], "done": false })),
-            };
-            let frame = message
-                .get(0)
-                .ok_or_else(|| anyhow!("zeromq message had no frames"))?;
-            let raw = String::from_utf8(frame.to_vec())?;
-            let payload =
-                serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| json!({ "raw": raw }));
-            if !topic_filter.is_empty()
-                && payload.get("topic").and_then(Value::as_str) != Some(topic_filter)
-            {
-                return Ok(json!({ "records": [], "done": false }));
-            }
-            let record_payload = payload.get("payload").cloned().unwrap_or(payload.clone());
-            Ok(json!({
-                "records": [{
-                    "id": format!("zeromq-{}", uuid::Uuid::new_v4()),
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "payload": record_payload,
-                    "metadata": {}
-                }],
-                "done": false
-            }))
-        }
-        "trigger.stop" => {
-            state.stopped = true;
-            state.sub_socket.take();
-            state.sub_ready = false;
-            Ok(json!({}))
-        }
+        "bus.publish" => handle_publish(state, &request.params),
+        "trigger.start" => handle_start(state, &request.params),
+        "trigger.pull" => handle_pull(state, &request.params),
+        "trigger.stop" => handle_stop(state),
         other => Err(anyhow!("unknown method: {other}")),
     }
+}
+
+fn handle_publish(state: &mut State, params: &Value) -> Result<Value> {
+    let config = config(params)?;
+    let topic = params
+        .get("topic")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let payload = params
+        .get("payload")
+        .ok_or_else(|| anyhow!("missing payload"))?;
+    ensure_pub_socket(state, config)?;
+    let message = json!({ "topic": topic, "payload": payload }).to_string();
+    let runtime = &state.runtime;
+    let socket = state
+        .pub_socket
+        .as_mut()
+        .ok_or_else(|| anyhow!("failed to initialize zeromq pub socket"))?;
+    if !state.pub_ready {
+        runtime.block_on(async { tokio::time::sleep(Duration::from_millis(300)).await });
+        state.pub_ready = true;
+    }
+    runtime.block_on(async { socket.send(message.into()).await })?;
+    Ok(json!({}))
+}
+
+fn handle_start(state: &mut State, params: &Value) -> Result<Value> {
+    let config = config(params)?;
+    ensure_sub_socket(state, config)?;
+    let runtime = &state.runtime;
+    let socket = state
+        .sub_socket
+        .as_mut()
+        .ok_or_else(|| anyhow!("failed to initialize zeromq sub socket"))?;
+    runtime.block_on(async { socket.subscribe("").await })?;
+    if !state.sub_ready {
+        runtime.block_on(async { tokio::time::sleep(Duration::from_millis(300)).await });
+        state.sub_ready = true;
+    }
+    state.stopped = false;
+    Ok(json!({}))
+}
+
+fn handle_pull(state: &mut State, params: &Value) -> Result<Value> {
+    if state.stopped {
+        return Ok(json!({ "records": [], "done": true }));
+    }
+    let config = config(params)?;
+    let timeout = config
+        .get("timeout_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(100);
+    let topic_filter = config.get("topic").and_then(Value::as_str).unwrap_or("");
+    let payload = match recv_payload(state, config, timeout)? {
+        Some(payload) => payload,
+        None => return Ok(json!({ "records": [], "done": false })),
+    };
+    if !topic_filter.is_empty()
+        && payload.get("topic").and_then(Value::as_str) != Some(topic_filter)
+    {
+        return Ok(json!({ "records": [], "done": false }));
+    }
+    let record_payload = payload.get("payload").cloned().unwrap_or(payload.clone());
+    Ok(make_record(record_payload))
+}
+
+fn make_record(payload: Value) -> Value {
+    json!({
+        "records": [{
+            "id": format!("zeromq-{}", uuid::Uuid::new_v4()),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "payload": payload,
+            "metadata": {}
+        }],
+        "done": false
+    })
+}
+
+fn recv_payload(
+    state: &mut State,
+    config: &serde_json::Map<String, Value>,
+    timeout: u64,
+) -> Result<Option<Value>> {
+    ensure_sub_socket(state, config)?;
+    let runtime = &state.runtime;
+    let socket = state
+        .sub_socket
+        .as_mut()
+        .ok_or_else(|| anyhow!("failed to initialize zeromq sub socket"))?;
+    let maybe_message = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_millis(timeout), socket.recv()).await
+    });
+    let message = match maybe_message {
+        Ok(Ok(message)) => message,
+        Ok(Err(error)) => return Err(error.into()),
+        Err(_) => return Ok(None),
+    };
+    let frame = message
+        .get(0)
+        .ok_or_else(|| anyhow!("zeromq message had no frames"))?;
+    let raw = String::from_utf8(frame.to_vec())?;
+    Ok(Some(
+        serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| json!({ "raw": raw })),
+    ))
+}
+
+fn handle_stop(state: &mut State) -> Result<Value> {
+    state.stopped = true;
+    state.sub_socket.take();
+    state.sub_ready = false;
+    Ok(json!({}))
 }
 
 fn config(params: &Value) -> Result<&serde_json::Map<String, Value>> {
