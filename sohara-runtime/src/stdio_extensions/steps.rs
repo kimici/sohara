@@ -2,7 +2,6 @@
 
 use super::*;
 
-#[async_trait::async_trait]
 impl StepFactory for StdioStepFactory {
     fn build(&self, config: &Value, ctx: &BuildContext) -> Result<BuiltStep> {
         let Some(step) = ctx.step.clone() else {

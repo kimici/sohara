@@ -68,7 +68,8 @@ fn fail_run<E: std::fmt::Display>(
     std::process::exit(1)
 }
 
-pub(crate) async fn serve_flow(flags: ServeFlags, verbose: bool) -> Result<()> {
+pub(crate) async fn serve_flow(flags: ServeFlags) -> Result<()> {
+    let verbose = flags.verbose;
     let ServeFlags {
         flow, extensions, ..
     } = &flags;
@@ -234,20 +235,30 @@ pub(crate) async fn run_server(flags: ServerFlags) -> Result<()> {
         data_dir,
         extensions,
     } = flags;
+    // Validate the token before touching the filesystem or binding a port.
+    let state = Arc::new(sohara_runtime::ServerState::new(admin_token)?);
     // Extensions are available for flows created later via the management API (C2).
     let (_registry, _host) = registry_and_extensions(&extensions)?;
     // Prepare the data layout without loading any flow (C1 contract).
     let flows_dir = data_dir.join("flows");
     std::fs::create_dir_all(&flows_dir)?;
 
-    let state = Arc::new(sohara_runtime::ServerState { token: admin_token });
-    let handle = sohara_runtime::spawn_server(addr, state).await?;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let (bound, handle) = sohara_runtime::spawn_server(addr, state, async move {
+        let _ = shutdown_rx.await;
+    })
+    .await?;
     tracing::info!(
-        "sohara server listening on {addr} (no flows loaded, data-dir={})",
+        "sohara server listening on {bound} (no flows loaded, data-dir={})",
         data_dir.display()
     );
+
     ctrl_c().await;
-    handle.abort();
+    // Signal graceful shutdown, then wait for in-flight requests to drain.
+    let _ = shutdown_tx.send(());
+    if let Err(error) = handle.await {
+        tracing::error!("sohara server task failed to join: {error}");
+    }
     Ok(())
 }
 

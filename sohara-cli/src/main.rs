@@ -1,4 +1,4 @@
-//! `sohara` command-line interface: run / serve / approve / history / init
+//! `sohara` command-line interface: run / serve / server / approve / history / init
 
 mod commands;
 mod history;
@@ -146,10 +146,7 @@ async fn main() -> Result<()> {
 async fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Run(flags) => run_flow(flags).await,
-        Command::Serve(flags) => {
-            let verbose = flags.verbose;
-            serve_flow(flags, verbose).await
-        }
+        Command::Serve(flags) => serve_flow(flags).await,
         Command::Server(flags) => run_server(flags).await,
         Command::Approve(flags) => approve_flow(flags).await,
         Command::History(flags) => show_history(flags.history.as_deref(), flags.limit),
