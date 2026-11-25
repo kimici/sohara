@@ -36,8 +36,7 @@ impl Runtime {
     }
 
     /// Start the runtime (placeholder for actual implementation)
-    #[allow(clippy::unused_async)]
-    pub async fn start(&self) -> Result<()> {
+    pub fn start(&self) -> Result<()> {
         tracing::info!("[{}] Runtime starting...", self.name);
         // TODO: Implement actual runtime logic
         // - Start all registered pipelines
@@ -47,8 +46,7 @@ impl Runtime {
     }
 
     /// Stop the runtime
-    #[allow(clippy::unused_async)]
-    pub async fn stop(&self) -> Result<()> {
+    pub fn stop(&self) -> Result<()> {
         tracing::info!("[{}] Runtime stopping...", self.name);
         // TODO: Implement graceful shutdown
         Ok(())
